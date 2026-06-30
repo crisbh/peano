@@ -1,30 +1,6 @@
-#include "io.h"
+#include "output.h"
 
 namespace exahype2::ccz4::ahf {
-
-void ReadGridFromFile(const std::string& inputFile) {
-  (void)inputFile;
-  // Loading grid data from a standard VTK/HDF5 file. 
-  // This approach has the maximal compatibility, with the price of extra I/O to disk (thus speed). 
-  // Parallelism can be used for performance (and to avoid exceeding the memory threshold). 
-  //             Ref: https://docs.vtk.org/en/latest/design_documents/smptools.html.
-  // This approach can be applied either on-the-fly or during post-processing.
-  // – Input: VTK, HDF5...
-  // – Output: Full grid dataset. A full grid dataset giving solution $\{Q_{i,j,k}\}$ on each cell/volume, 
-  //           and the corresponding Cartesian coordinates $\{x_I,y_I,z_I\}$. 
-  //           They may be stored in subdomains, managed by multiple cores when the domain is large.
-}
-
-void ReadGridFromPeano(const PeanoGridData& peanoGridData) {
-  (void)peanoGridData;
-  // Loading grid data from the Peano data structure among timesteppings.
-  // Must be done in parallel as each core only holds a subdomain of the grid. 
-  // This approach requires binding codes to ExaGRyPE, reducing its generality.
-  // – Input: Peano grid data
-  // – Output: Full grid dataset. A full grid dataset giving solution $\{Q_{i,j,k}\}$ on each cell/volume, 
-  //           and the corresponding Cartesian coordinates $\{x_I,y_I,z_I\}$. 
-  //           They may be stored in subdomains, managed by multiple cores when the domain is large.
-}
 
 void WriteAHToFile(const std::vector<AHGuess>& initialAHGuesses,
                    const std::vector<ReferencePoint>& referencePoints,
