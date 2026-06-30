@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 
 project(CCZ4ApparentHorizonFinder LANGUAGES CXX)
 
+option(ENABLE_CCZ4_AHF_TESTS "Build CCZ4 apparent-horizon-finder test executables" OFF)
+
 if(NOT TARGET PeanoOptions)
   add_library(PeanoOptions INTERFACE)
   target_compile_features(PeanoOptions INTERFACE cxx_std_20)
@@ -72,3 +74,23 @@ vtk_module_autoinit(
 
 add_executable(ahf-postprocess ahf-postprocess.cpp)
 target_link_libraries(ahf-postprocess PRIVATE ApparentHorizonFinderPostprocess)
+
+if(ENABLE_CCZ4_AHF_TESTS)
+  enable_testing()
+
+  add_executable(ahf-io-tests test/io/IoTests.cpp)
+  target_link_libraries(ahf-io-tests PRIVATE ApparentHorizonFinderPostprocess)
+  add_test(NAME ahf-io-tests COMMAND ahf-io-tests)
+
+  add_executable(ahf-interpolation-tests test/interpolation/InterpolationTests.cpp)
+  target_link_libraries(ahf-interpolation-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-interpolation-tests COMMAND ahf-interpolation-tests)
+
+  add_executable(ahf-assemble-matrix-tests test/assemble-matrix/AssembleMatrixTests.cpp)
+  target_link_libraries(ahf-assemble-matrix-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-assemble-matrix-tests COMMAND ahf-assemble-matrix-tests)
+
+  add_executable(ahf-iteration-tests test/iteration/IterationTests.cpp)
+  target_link_libraries(ahf-iteration-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-iteration-tests COMMAND ahf-iteration-tests)
+endif()

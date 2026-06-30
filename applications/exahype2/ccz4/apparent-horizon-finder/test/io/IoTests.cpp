@@ -1,23 +1,25 @@
 #include <iostream>
 
-#include "../..//apparent-horizon-finder.h"
+#include "../../file-input.h"
+#include "../../output.h"
+#include "../../peano-input.h"
 
 namespace exahype2::ccz4::ahf::tests::io {
 
 void testReadGridFromFile() {
-  std::cout << "Placeholder test for ReadGridFromFile()" << std::endl;
+  std::cout << "Placeholder test for file-input ReadGridFromFile()" << std::endl;
 }
 
 void testReadGridFromPeano() {
-  std::cout << "Placeholder test for ReadGridFromPeano()" << std::endl;
+  std::cout << "Placeholder test for peano-input ReadGridFromPeano()" << std::endl;
 }
 
 void testWriteAHToFile() {
-  std::cout << "Placeholder test for WriteAHToFile()" << std::endl;
+  std::cout << "Placeholder test for output WriteAHToFile()" << std::endl;
 }
 
 void testWriteAHToVTK() {
-  std::cout << "Placeholder test for WriteAHToVTK()" << std::endl;
+  std::cout << "Placeholder test for output WriteAHToVTK()" << std::endl;
 }
 
 }  // namespace exahype2::ccz4::ahf::tests::io
