@@ -333,6 +333,7 @@ src/unittests/UnitTests*
 *.err
 *.out
 *.txt
+!applications/exahype2/ccz4/apparent-horizon-finder/CMakeLists.txt
 *.csv
 
 *.o.*

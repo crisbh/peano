@@ -124,6 +124,7 @@ option(ENABLE_EXAHYPE "Enable ExaHyPE 2" OFF)
 option(ENABLE_EXAGRYPE "Enable ExaGRyPE (3d only, requires ExaHyPE 2)" OFF)
 option(ENABLE_MGHYPE "Enable MGHyPE" OFF)
 option(ENABLE_EXAPARTY "Enable ExaParty" OFF)
+option(ENABLE_CCZ4_AHF_POSTPROCESSOR "Build the CCZ4 apparent-horizon-finder postprocessing executable" OFF)
 
 list(APPEND AVAILABLE_TOOLCHAINS
   "no"
@@ -394,6 +395,10 @@ target_include_directories(PeanoOptions INTERFACE
 )
 
 add_subdirectory(src)
+
+if(ENABLE_CCZ4_AHF_POSTPROCESSOR)
+  add_subdirectory(applications/exahype2/ccz4/apparent-horizon-finder)
+endif()
 
 include(CMakePackageConfigHelpers)
 
