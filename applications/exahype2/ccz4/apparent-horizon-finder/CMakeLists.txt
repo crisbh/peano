@@ -17,6 +17,7 @@ set(AHF_CORE_SOURCES
 )
 
 set(AHF_CORE_HEADERS
+  ahf-data.h
   apparent-horizon-finder.h
   peano-input.h
   output.h
@@ -81,6 +82,10 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-io-tests test/io/IoTests.cpp)
   target_link_libraries(ahf-io-tests PRIVATE ApparentHorizonFinderPostprocess)
   add_test(NAME ahf-io-tests COMMAND ahf-io-tests)
+
+  add_executable(ahf-data-tests test/data/AhfDataTests.cpp)
+  target_link_libraries(ahf-data-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-data-tests COMMAND ahf-data-tests)
 
   add_executable(ahf-interpolation-tests test/interpolation/InterpolationTests.cpp)
   target_link_libraries(ahf-interpolation-tests PRIVATE ApparentHorizonFinderCore)

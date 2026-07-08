@@ -1,12 +1,13 @@
 #ifndef APPARENT_HORIZON_FINDER_ITERATION_H_
 #define APPARENT_HORIZON_FINDER_ITERATION_H_
 
+#include "ahf-data.h"
+
 #include <vector>
 
 namespace exahype2::ccz4::ahf {
 
 struct AHGuess;
-struct ReferencePoint;
 
 /**
  * Solve the apparent-horizon PDE problem iteratively.

@@ -1,6 +1,8 @@
 #ifndef APPARENT_HORIZON_FINDER_INTERPOLATION_H_
 #define APPARENT_HORIZON_FINDER_INTERPOLATION_H_
 
+#include "ahf-data.h"
+
 #include <vector>
 
 namespace exahype2::ccz4::ahf {
@@ -9,7 +11,6 @@ struct GridData;
 struct InterpolatedShell;
 struct InterpolatedSurface;
 struct VariableMapping;
-struct ReferencePoint;
 struct AHGuess;
 
 /**

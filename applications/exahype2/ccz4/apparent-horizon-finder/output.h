@@ -1,13 +1,14 @@
 #ifndef APPARENT_HORIZON_FINDER_OUTPUT_H_
 #define APPARENT_HORIZON_FINDER_OUTPUT_H_
 
+#include "ahf-data.h"
+
 #include <string>
 #include <vector>
 
 namespace exahype2::ccz4::ahf {
 
 struct AHGuess;
-struct ReferencePoint;
 
 /**
  * Write the apparent-horizon hypersurface to an ASCII file.
