@@ -7,7 +7,6 @@
 
 namespace exahype2::ccz4::ahf {
 
-struct GridData;
 struct InterpolatedShell;
 struct InterpolatedSurface;
 struct VariableMapping;
