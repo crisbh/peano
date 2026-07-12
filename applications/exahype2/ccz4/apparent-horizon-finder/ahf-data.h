@@ -16,6 +16,24 @@ struct ReferencePoint {
 };
 
 /**
+ * One point on an apparent-horizon guess, expressed in spherical coordinates.
+ */
+struct AHGuessPoint {
+  double r;
+  double rho;
+  double sigma;
+};
+
+/**
+ * One apparent-horizon hypersurface guess.
+ *
+ * Multiple candidate guesses are represented by std::vector<AHGuess>.
+ */
+struct AHGuess {
+  std::vector<AHGuessPoint> points;
+};
+
+/**
  * Cartesian coordinate for one sampled grid point.
  */
 struct GridCoordinate {

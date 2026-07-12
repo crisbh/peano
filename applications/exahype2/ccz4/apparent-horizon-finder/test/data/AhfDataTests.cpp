@@ -15,6 +15,22 @@ void testReferencePointStruct() {
   std::cout << "ReferencePoint stores x = " << referencePoint.x << ", y = " << referencePoint.y << ", and z = " << referencePoint.z << std::endl;
 }
 
+void testAHGuessStruct() {
+  const std::vector<AHGuess> initialAHGuesses = {
+    {{{1.0, 0.0, 0.0}, {1.1, 0.5, 1.0}}},
+    {{{2.0, 0.0, 0.0}, {2.2, 0.5, 1.0}}}
+  };
+
+  assert(initialAHGuesses.size() == 2);
+  assert(initialAHGuesses[0].points.size() == 2);
+  assert(initialAHGuesses[0].points[1].r == 1.1);
+  assert(initialAHGuesses[0].points[1].rho == 0.5);
+  assert(initialAHGuesses[0].points[1].sigma == 1.0);
+  assert(initialAHGuesses[1].points[0].r == 2.0);
+
+  std::cout << "AHGuess stores lists of (r, rho, sigma) points, and initialAHGuesses stores multiple guesses" << std::endl;
+}
+
 void testGridDataStruct() {
   GridData gridData;
   gridData.coordinates = {
@@ -53,6 +69,7 @@ int main() {
   std::cout << "Apparent Horizon Finder data tests begin..." << std::endl;
 
   testReferencePointStruct();
+  testAHGuessStruct();
   testGridDataStruct();
 
   std::cout << "All data tests completed." << std::endl;
