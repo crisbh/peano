@@ -2,14 +2,14 @@
 
 namespace exahype2::ccz4::ahf {
 
-void SolvePDEforAH(const std::vector<AHGuess>& initialAHGuesses,
-                   const std::vector<ReferencePoint>& referencePoints,
+void SolvePDEforAH(const AHGuess& initialAHGuess,
+                   const ReferencePoint& referencePoint,
                    const std::vector<double>& masses,
-                   std::vector<AHGuess>& solvedAHGuesses) {
-  (void)initialAHGuesses;
-  (void)referencePoints;
+                   AHGuess& solvedAHGuess) {
+  (void)initialAHGuess;
+  (void)referencePoint;
   (void)masses;
-  (void)solvedAHGuesses;
+  (void)solvedAHGuess;
   // Call InterpolateFromCartesianToShell() [though this function is called in every iteration,
   //      it would not do anything except the very first iteration and the two cases state above],
   //      InterpolateFromShellToSurface() and AssembleGlobalMatrix(), then determine the new AH
@@ -34,15 +34,15 @@ void SolvePDEforAH(const std::vector<AHGuess>& initialAHGuesses,
   //    so we move to the next set of initial guess.
 }
 
-void CheckCommonHorizonOfBBH(const std::vector<AHGuess>& initialAHGuesses,
-                             const std::vector<ReferencePoint>& referencePoints,
+void CheckCommonHorizonOfBBH(const AHGuess& initialAHGuess,
+                             const ReferencePoint& referencePoint,
                              const std::vector<double>& masses,
                              bool& enableCommonHorizon,
                              ReferencePoint& commonReferencePoint,
                              double& commonMass,
-                             std::vector<AHGuess>& commonAHGuesses) {
-  (void)initialAHGuesses;
-  (void)referencePoints;
+                             AHGuess& commonAHGuesses) {
+  (void)initialAHGuess;
+  (void)referencePoint;
   (void)masses;
   (void)enableCommonHorizon;
   (void)commonReferencePoint;
