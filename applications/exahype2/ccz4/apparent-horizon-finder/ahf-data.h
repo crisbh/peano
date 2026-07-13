@@ -28,6 +28,14 @@ struct AHGuessPoint {
 };
 
 /**
+ * User-provided angular coordinate at which the shell should be sampled.
+ */
+struct AngularSample {
+  double rho = 0.0;
+  double sigma = 0.0;
+};
+
+/**
  * One apparent-horizon hypersurface guess.
  *
  * Multiple candidate guesses are represented by std::vector<AHGuess>.

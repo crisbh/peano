@@ -31,6 +31,21 @@ void testAHGuessStruct() {
   std::cout << "AHGuess stores lists of (r, rho, sigma) points, and initialAHGuesses stores multiple guesses" << std::endl;
 }
 
+void testAngularSampleStruct() {
+  const std::vector<AngularSample> angularSamples{
+    {.rho = 0.25, .sigma = 0.5},
+    {.rho = 0.75, .sigma = 1.0}
+  };
+
+  assert(angularSamples.size() == 2);
+  assert(angularSamples[0].rho == 0.25);
+  assert(angularSamples[0].sigma == 0.5);
+  assert(angularSamples[1].rho == 0.75);
+  assert(angularSamples[1].sigma == 1.0);
+
+  std::cout << "AngularSample stores named (rho, sigma) coordinates" << std::endl;
+}
+
 void testGridDataStruct() {
   GridData gridData;
   gridData.coordinates = {
@@ -174,6 +189,7 @@ int main() {
 
   testReferencePointStruct();
   testAHGuessStruct();
+  testAngularSampleStruct();
   testGridDataStruct();
   testVariableMappingStruct();
   testInterpolatedShellStruct();
