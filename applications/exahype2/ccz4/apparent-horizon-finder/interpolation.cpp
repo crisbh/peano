@@ -3,11 +3,11 @@
 namespace exahype2::ccz4::ahf {
 
 void InterpolateFromCartesianToShell(const GridData& gridData,
-                                     const std::vector<AHGuess>& ahGuess,
+                                     const AHGuess& ahGuess,
                                      const ReferencePoint& referencePoint,
-                                     const std::vector<double>& angularSamples,
                                      const VariableMapping& variableMapping,
-                                     InterpolatedShell& interpolatedShell) {
+                                     InterpolatedShell& interpolatedShell,
+                                     std::span<const AngularSample> angularSamples) {
   (void)gridData;
   (void)ahGuess;
   (void)referencePoint;
@@ -21,7 +21,8 @@ void InterpolateFromCartesianToShell(const GridData& gridData,
   // The radial coordinate sample can be determined by this function. Notice we need to calculate derivatives 
   //          here, so the subdomain may require halos if we do the process in parallel.
   // – Input: Full grid dataset ($Q\{x_I,y_I,z_I\}$), AH Guess function ($ \{h^{(k)}(\rho _I, \sigma _I)\}$),
-  //          Reference point($s_0$). angular coordinate samples, Variable mapping (see below).
+  //          Reference point($s_0$), optional angular coordinate samples, Variable mapping (see below).
+  //          If angularSamples is empty, use the angular coordinates stored in ahGuess.
   //– Output: the data structure InterpolatedShell that contains $T_{ij}$, $X^u_i$, $X^u_{ij}$, $ \gamma_{ij}$,
   //          $\partial_i \gamma_{jk}$, $K$ for each sample point ($\{r_I,\rho_I,\sigma_I\}$) within the
   //          shell-like subdomain, the structure also contains the shell outer and inner radii and the 
@@ -42,7 +43,7 @@ void InterpolateFromCartesianToShell(const GridData& gridData,
 }
 
 void InterpolateFromShellToSurface(const InterpolatedShell& interpolatedShell,
-                                   const std::vector<AHGuess>& ahGuess,
+                                   const AHGuess& ahGuess,
                                    const ReferencePoint& referencePoint,
                                    InterpolatedSurface& interpolatedSurface) {
   (void)interpolatedShell;
