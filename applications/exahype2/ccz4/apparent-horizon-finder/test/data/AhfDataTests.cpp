@@ -61,6 +61,28 @@ void testGridDataStruct() {
   std::cout << "GridData stores coordinates and point-major scalar values" << std::endl;
 }
 
+void testVariableMappingStruct() {
+  const VariableMapping mapping{
+    .conformalMetric = {0, 1, 2, 3, 4, 5},
+    .conformalExtrinsicCurvature = {6, 7, 8, 9, 10, 11},
+    .traceK = 53,
+    .conformalFactor = 54,
+    .conformalFactorEncoding = VariableMapping::ConformalFactorEncoding::Phi
+  };
+
+  assert(mapping.conformalMetric[VariableMapping::Index{0}] == 0);
+  assert(mapping.conformalExtrinsicCurvature[VariableMapping::Index{5}] == 11);
+  assert(mapping.traceK == 53);
+  assert(mapping.conformalFactor == 54);
+  assert(mapping.isValid(59));
+  assert(!mapping.isValid(54));
+
+  const VariableMapping incompleteMapping;
+  assert(!incompleteMapping.isValid(59));
+
+  std::cout << "VariableMapping stores validated GridData variable indices" << std::endl;
+}
+
 }  // namespace exahype2::ccz4::ahf::tests::data
 
 int main() {
@@ -71,6 +93,7 @@ int main() {
   testReferencePointStruct();
   testAHGuessStruct();
   testGridDataStruct();
+  testVariableMappingStruct();
 
   std::cout << "All data tests completed." << std::endl;
   return 0;

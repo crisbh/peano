@@ -1,7 +1,9 @@
 #ifndef APPARENT_HORIZON_FINDER_AHF_DATA_H_
 #define APPARENT_HORIZON_FINDER_AHF_DATA_H_
 
+#include <array>
 #include <cstddef>
+#include <limits>
 #include <vector>
 
 namespace exahype2::ccz4::ahf {
@@ -72,6 +74,48 @@ struct GridData {
 
   const double& value(std::size_t pointIndex, std::size_t variableIndex) const {
     return values[pointIndex * numberOfVariables + variableIndex];
+  }
+};
+
+/**
+ * User-provided mapping from AHF quantities to variable indices in GridData.
+ *
+ * Symmetric tensors use the component order xx, xy, xz, yy, yz, zz. The
+ * mapping contains indices only; the corresponding values remain in
+ * GridData::values.
+ */
+struct VariableMapping {
+  using Index = std::size_t;
+
+  static constexpr Index NotStored = std::numeric_limits<Index>::max();
+
+  enum class ConformalFactorEncoding {
+    Phi,
+    LogPhi
+  };
+
+  std::array<Index, 6> conformalMetric{
+    NotStored, NotStored, NotStored, NotStored, NotStored, NotStored
+  };
+  std::array<Index, 6> conformalExtrinsicCurvature{
+    NotStored, NotStored, NotStored, NotStored, NotStored, NotStored
+  };
+  Index traceK = NotStored;
+  Index conformalFactor = NotStored;
+  ConformalFactorEncoding conformalFactorEncoding = ConformalFactorEncoding::Phi;
+
+  bool isValid(std::size_t numberOfVariables) const {
+    for (Index index : conformalMetric) {
+      if (index >= numberOfVariables) {
+        return false;
+      }
+    }
+    for (Index index : conformalExtrinsicCurvature) {
+      if (index >= numberOfVariables) {
+        return false;
+      }
+    }
+    return traceK < numberOfVariables && conformalFactor < numberOfVariables;
   }
 };
 

@@ -9,7 +9,6 @@ namespace exahype2::ccz4::ahf {
 
 struct InterpolatedShell;
 struct InterpolatedSurface;
-struct VariableMapping;
 struct AHGuess;
 
 /**
