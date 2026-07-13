@@ -12,8 +12,8 @@ struct AHGuess;
  * Assemble the global system matrix and residuals from the interpolated surface data.
  */
 void AssembleGlobalMatrix(const InterpolatedSurface& interpolatedSurface,
-                          const std::vector<AHGuess>& ahGuess,
-                          std::vector<double>& matrixCoefficients,
+                          const AHGuess& ahGuess,
+                          std::vector<std::vector<double>>& matrixCoefficients,
                           std::vector<double>& residuals);
 
 }  // namespace exahype2::ccz4::ahf
