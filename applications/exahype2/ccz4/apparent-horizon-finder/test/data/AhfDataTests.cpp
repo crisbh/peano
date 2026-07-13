@@ -83,6 +83,88 @@ void testVariableMappingStruct() {
   std::cout << "VariableMapping stores validated GridData variable indices" << std::endl;
 }
 
+void testInterpolatedShellStruct() {
+  InterpolatedShell shell{
+    .innerRadius = 0.8,
+    .outerRadius = 1.2,
+    .points = {
+      {.r = 0.8, .rho = 0.25, .sigma = 0.5},
+      {.r = 1.0, .rho = 0.25, .sigma = 0.5},
+      {.r = 1.2, .rho = 0.25, .sigma = 0.5}
+    }
+  };
+
+  shell.points[1].geometry.T[0][1] = 2.0;
+  shell.points[1].geometry.coordinateGradient[0][2] = 3.0;
+  shell.points[1].geometry.coordinateHessian[1][2][0] = 4.0;
+  shell.points[1].geometry.spatialMetric[2][2] = 5.0;
+  shell.points[1].geometry.spatialMetricDerivative[0][1][2] = 6.0;
+  shell.points[1].geometry.extrinsicCurvature[1][1] = 7.0;
+  shell.points[1].geometry.traceK = 8.0;
+
+  assert(shell.numberOfPoints() == 3);
+  assert(shell.points[1].r == 1.0);
+  assert(shell.points[1].rho == 0.25);
+  assert(shell.points[1].sigma == 0.5);
+  assert(shell.points[1].geometry.T[0][1] == 2.0);
+  assert(shell.points[1].geometry.coordinateGradient[0][2] == 3.0);
+  assert(shell.points[1].geometry.coordinateHessian[1][2][0] == 4.0);
+  assert(shell.points[1].geometry.spatialMetric[2][2] == 5.0);
+  assert(shell.points[1].geometry.spatialMetricDerivative[0][1][2] == 6.0);
+  assert(shell.points[1].geometry.extrinsicCurvature[1][1] == 7.0);
+  assert(shell.points[1].geometry.traceK == 8.0);
+  assert(shell.isConsistent());
+
+  InterpolatedShell invalidShell = shell;
+  invalidShell.points[0].r = 0.7;
+  assert(!invalidShell.isConsistent());
+
+  const InterpolatedShell emptyShell;
+  assert(!emptyShell.isConsistent());
+
+  std::cout << "InterpolatedShell stores pointwise (r, rho, sigma) data" << std::endl;
+}
+
+void testInterpolatedSurfaceStruct() {
+  const AHGuess ahGuess{
+    .points = {
+      {.r = 1.0, .rho = 0.25, .sigma = 0.5},
+      {.r = 1.1, .rho = 0.75, .sigma = 1.0}
+    }
+  };
+
+  InterpolatedSurface surface{
+    .points = {
+      {.r = 1.0, .rho = 0.25, .sigma = 0.5},
+      {.r = 1.1, .rho = 0.75, .sigma = 1.0}
+    }
+  };
+
+  surface.points[0].surfaceNormal[2] = 2.0;
+  surface.points[0].surfaceNormalDerivative[1][2] = 3.0;
+  surface.points[0].geometry.spatialMetric[0][0] = 4.0;
+
+  assert(surface.numberOfPoints() == 2);
+  assert(surface.points[0].surfaceNormal[2] == 2.0);
+  assert(surface.points[0].surfaceNormalDerivative[1][2] == 3.0);
+  assert(surface.points[0].geometry.spatialMetric[0][0] == 4.0);
+  assert(surface.isConsistent());
+  assert(surface.matches(ahGuess));
+
+  AHGuess differentGuess = ahGuess;
+  differentGuess.points[1].r = 1.2;
+  assert(!surface.matches(differentGuess));
+
+  InterpolatedSurface invalidSurface = surface;
+  invalidSurface.points[0].r = -1.0;
+  assert(!invalidSurface.isConsistent());
+
+  const InterpolatedSurface emptySurface;
+  assert(!emptySurface.isConsistent());
+
+  std::cout << "InterpolatedSurface stores one point per AH guess point" << std::endl;
+}
+
 }  // namespace exahype2::ccz4::ahf::tests::data
 
 int main() {
@@ -94,6 +176,8 @@ int main() {
   testAHGuessStruct();
   testGridDataStruct();
   testVariableMappingStruct();
+  testInterpolatedShellStruct();
+  testInterpolatedSurfaceStruct();
 
   std::cout << "All data tests completed." << std::endl;
   return 0;
