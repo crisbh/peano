@@ -12,21 +12,21 @@ struct AHGuess;
 /**
  * Solve the apparent-horizon PDE problem iteratively.
  */
-void SolvePDEforAH(const std::vector<AHGuess>& initialAHGuesses,
-                   const std::vector<ReferencePoint>& referencePoints,
+void SolvePDEforAH(const AHGuess& initialAHGuess,
+                   const ReferencePoint& referencePoint,
                    const std::vector<double>& masses,
-                   std::vector<AHGuess>& solvedAHGuesses);
+                   AHGuess& solvedAHGuess);
 
 /**
  * Determine whether a common-horizon search should be triggered for a binary-black-hole setup.
  */
-void CheckCommonHorizonOfBBH(const std::vector<AHGuess>& initialAHGuesses,
-                             const std::vector<ReferencePoint>& referencePoints,
+void CheckCommonHorizonOfBBH(const AHGuess& initialAHGuess,
+                             const ReferencePoint& referencePoint,
                              const std::vector<double>& masses,
                              bool& enableCommonHorizon,
                              ReferencePoint& commonReferencePoint,
                              double& commonMass,
-                             std::vector<AHGuess>& commonAHGuesses);
+                             AHGuess& commonAHGuesses);
 
 }  // namespace exahype2::ccz4::ahf
 
