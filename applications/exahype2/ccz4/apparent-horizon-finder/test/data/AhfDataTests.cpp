@@ -1,5 +1,6 @@
 #include <cassert>
 #include <iostream>
+#include <stdexcept>
 
 #include "../../ahf-data.h"
 
@@ -54,12 +55,12 @@ void testGridDataStruct() {
   };
   gridData.setNumberOfVariables(3);
 
-  gridData.value(0, 0) = 10.0;
-  gridData.value(0, 1) = 11.0;
-  gridData.value(0, 2) = 12.0;
-  gridData.value(1, 0) = 20.0;
-  gridData.value(1, 1) = 21.0;
-  gridData.value(1, 2) = 22.0;
+  gridData.value({0.0, 0.1, 0.2}, 0) = 10.0;
+  gridData.value({0.0, 0.1, 0.2}, 1) = 11.0;
+  gridData.value({0.0, 0.1, 0.2}, 2) = 12.0;
+  gridData.value({1.0, 1.1, 1.2}, 0) = 20.0;
+  gridData.value({1.0, 1.1, 1.2}, 1) = 21.0;
+  gridData.value({1.0, 1.1, 1.2}, 2) = 22.0;
 
   assert(gridData.numberOfPoints() == 2);
   assert(gridData.numberOfVariables == 3);
@@ -67,11 +68,28 @@ void testGridDataStruct() {
   assert(gridData.coordinates[1].x == 1.0);
   assert(gridData.coordinates[1].y == 1.1);
   assert(gridData.coordinates[1].z == 1.2);
-  assert(gridData.value(0, 2) == 12.0);
-  assert(gridData.value(1, 1) == 21.0);
+  assert(gridData.value({0.0, 0.1, 0.2}, 2) == 12.0);
+  assert(gridData.value({1.0, 1.1, 1.2}, 1) == 21.0);
+  assert(gridData.value({1.0, 0.5 + 0.6, 1.2}, 1) == 21.0);
 
   const GridData& constGridData = gridData;
-  assert(constGridData.value(1, 2) == 22.0);
+  assert(constGridData.value({1.0, 1.1, 1.2}, 2) == 22.0);
+
+  bool missingCoordinateRejected = false;
+  try {
+    (void)gridData.value({2.0, 2.1, 2.2}, 0);
+  } catch (const std::out_of_range&) {
+    missingCoordinateRejected = true;
+  }
+  assert(missingCoordinateRejected);
+
+  bool invalidVariableRejected = false;
+  try {
+    (void)gridData.value({0.0, 0.1, 0.2}, 3);
+  } catch (const std::out_of_range&) {
+    invalidVariableRejected = true;
+  }
+  assert(invalidVariableRejected);
 
   std::cout << "GridData stores coordinates and point-major scalar values" << std::endl;
 }

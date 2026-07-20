@@ -1,10 +1,12 @@
 #ifndef APPARENT_HORIZON_FINDER_AHF_DATA_H_
 #define APPARENT_HORIZON_FINDER_AHF_DATA_H_
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 namespace exahype2::ccz4::ahf {
@@ -77,12 +79,43 @@ struct GridData {
     return numberOfVariables > 0 && values.size() == coordinates.size() * numberOfVariables;
   }
 
-  double& value(std::size_t pointIndex, std::size_t variableIndex) {
-    return values[pointIndex * numberOfVariables + variableIndex];
+  double& value(const GridCoordinate& coordinate, std::size_t variableIndex) {
+    return values[valueIndex(coordinate, variableIndex)];
   }
 
-  const double& value(std::size_t pointIndex, std::size_t variableIndex) const {
-    return values[pointIndex * numberOfVariables + variableIndex];
+  const double& value(const GridCoordinate& coordinate, std::size_t variableIndex) const {
+    return values[valueIndex(coordinate, variableIndex)];
+  }
+
+private:
+  std::size_t valueIndex(const GridCoordinate& coordinate, std::size_t variableIndex) const {
+    if (variableIndex >= numberOfVariables) {
+      throw std::out_of_range("GridData variable index is out of range");
+    }
+
+    const auto point = std::find_if(
+      coordinates.begin(),
+      coordinates.end(),
+      [&coordinate](const GridCoordinate& candidate) {
+        return coordinatesEqual(candidate.x, coordinate.x)
+            && coordinatesEqual(candidate.y, coordinate.y)
+            && coordinatesEqual(candidate.z, coordinate.z);
+      }
+    );
+    if (point == coordinates.end()) {
+      throw std::out_of_range("GridData coordinate was not found");
+    }
+
+    const auto pointIndex = static_cast<std::size_t>(point - coordinates.begin());
+    return pointIndex * numberOfVariables + variableIndex;
+  }
+
+  static bool coordinatesEqual(double first, double second) {
+    constexpr double AbsoluteTolerance = 1.0e-12;
+    constexpr double RelativeTolerance = 1.0e-10;
+    return std::abs(first - second)
+        <= AbsoluteTolerance
+         + RelativeTolerance * std::max(std::abs(first), std::abs(second));
   }
 };
 
