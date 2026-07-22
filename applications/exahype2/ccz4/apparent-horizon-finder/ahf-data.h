@@ -207,6 +207,14 @@ struct InterpolatedShell {
     return points.size();
   }
 
+  InterpolatedShellPoint& value(const AHGuessPoint& coordinate) {
+    return *findPoint(coordinate);
+  }
+
+  const InterpolatedShellPoint& value(const AHGuessPoint& coordinate) const {
+    return *findPoint(coordinate);
+  }
+
   bool isConsistent() const {
     if (!std::isfinite(innerRadius) || !std::isfinite(outerRadius)
         || innerRadius > outerRadius || points.empty()) {
@@ -221,6 +229,47 @@ struct InterpolatedShell {
       }
     }
     return true;
+  }
+
+private:
+  std::vector<InterpolatedShellPoint>::iterator findPoint(const AHGuessPoint& coordinate) {
+    const auto point = std::find_if(
+      points.begin(),
+      points.end(),
+      [&coordinate](const InterpolatedShellPoint& candidate) {
+        return coordinatesEqual(candidate.r, coordinate.r)
+            && coordinatesEqual(candidate.rho, coordinate.rho)
+            && coordinatesEqual(candidate.sigma, coordinate.sigma);
+      }
+    );
+    if (point == points.end()) {
+      throw std::out_of_range("InterpolatedShell coordinate was not found");
+    }
+    return point;
+  }
+
+  std::vector<InterpolatedShellPoint>::const_iterator findPoint(const AHGuessPoint& coordinate) const {
+    const auto point = std::find_if(
+      points.begin(),
+      points.end(),
+      [&coordinate](const InterpolatedShellPoint& candidate) {
+        return coordinatesEqual(candidate.r, coordinate.r)
+            && coordinatesEqual(candidate.rho, coordinate.rho)
+            && coordinatesEqual(candidate.sigma, coordinate.sigma);
+      }
+    );
+    if (point == points.end()) {
+      throw std::out_of_range("InterpolatedShell coordinate was not found");
+    }
+    return point;
+  }
+
+  static bool coordinatesEqual(double first, double second) {
+    constexpr double AbsoluteTolerance = 1.0e-12;
+    constexpr double RelativeTolerance = 1.0e-10;
+    return std::abs(first - second)
+        <= AbsoluteTolerance
+         + RelativeTolerance * std::max(std::abs(first), std::abs(second));
   }
 };
 
@@ -247,6 +296,14 @@ struct InterpolatedSurface {
 
   std::size_t numberOfPoints() const {
     return points.size();
+  }
+
+  InterpolatedSurfacePoint& value(const AHGuessPoint& coordinate) {
+    return *findPoint(coordinate);
+  }
+
+  const InterpolatedSurfacePoint& value(const AHGuessPoint& coordinate) const {
+    return *findPoint(coordinate);
   }
 
   bool isConsistent() const {
@@ -276,6 +333,47 @@ struct InterpolatedSurface {
       }
     }
     return true;
+  }
+
+private:
+  std::vector<InterpolatedSurfacePoint>::iterator findPoint(const AHGuessPoint& coordinate) {
+    const auto point = std::find_if(
+      points.begin(),
+      points.end(),
+      [&coordinate](const InterpolatedSurfacePoint& candidate) {
+        return coordinatesEqual(candidate.r, coordinate.r)
+            && coordinatesEqual(candidate.rho, coordinate.rho)
+            && coordinatesEqual(candidate.sigma, coordinate.sigma);
+      }
+    );
+    if (point == points.end()) {
+      throw std::out_of_range("InterpolatedSurface coordinate was not found");
+    }
+    return point;
+  }
+
+  std::vector<InterpolatedSurfacePoint>::const_iterator findPoint(const AHGuessPoint& coordinate) const {
+    const auto point = std::find_if(
+      points.begin(),
+      points.end(),
+      [&coordinate](const InterpolatedSurfacePoint& candidate) {
+        return coordinatesEqual(candidate.r, coordinate.r)
+            && coordinatesEqual(candidate.rho, coordinate.rho)
+            && coordinatesEqual(candidate.sigma, coordinate.sigma);
+      }
+    );
+    if (point == points.end()) {
+      throw std::out_of_range("InterpolatedSurface coordinate was not found");
+    }
+    return point;
+  }
+
+  static bool coordinatesEqual(double first, double second) {
+    constexpr double AbsoluteTolerance = 1.0e-12;
+    constexpr double RelativeTolerance = 1.0e-10;
+    return std::abs(first - second)
+        <= AbsoluteTolerance
+         + RelativeTolerance * std::max(std::abs(first), std::abs(second));
   }
 };
 

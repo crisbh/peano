@@ -135,6 +135,8 @@ void testInterpolatedShellStruct() {
   shell.points[1].geometry.extrinsicCurvature[1][1] = 7.0;
   shell.points[1].geometry.traceK = 8.0;
 
+  shell.value({1.0, 0.25, 0.5}).geometry.traceK = 9.0;
+
   assert(shell.numberOfPoints() == 3);
   assert(shell.points[1].r == 1.0);
   assert(shell.points[1].rho == 0.25);
@@ -145,8 +147,18 @@ void testInterpolatedShellStruct() {
   assert(shell.points[1].geometry.spatialMetric[2][2] == 5.0);
   assert(shell.points[1].geometry.spatialMetricDerivative[0][1][2] == 6.0);
   assert(shell.points[1].geometry.extrinsicCurvature[1][1] == 7.0);
-  assert(shell.points[1].geometry.traceK == 8.0);
+  assert(shell.points[1].geometry.traceK == 9.0);
+  const InterpolatedShell& constShell = shell;
+  assert(constShell.value({0.5 + 0.5, 0.1 + 0.15, 0.5}).geometry.traceK == 9.0);
   assert(shell.isConsistent());
+
+  bool missingShellCoordinateRejected = false;
+  try {
+    (void)shell.value({1.0, 0.75, 0.5});
+  } catch (const std::out_of_range&) {
+    missingShellCoordinateRejected = true;
+  }
+  assert(missingShellCoordinateRejected);
 
   InterpolatedShell invalidShell = shell;
   invalidShell.points[0].r = 0.7;
@@ -177,12 +189,24 @@ void testInterpolatedSurfaceStruct() {
   surface.points[0].surfaceNormalDerivative[1][2] = 3.0;
   surface.points[0].geometry.spatialMetric[0][0] = 4.0;
 
+  surface.value({1.0, 0.25, 0.5}).geometry.traceK = 5.0;
+
   assert(surface.numberOfPoints() == 2);
   assert(surface.points[0].surfaceNormal[2] == 2.0);
   assert(surface.points[0].surfaceNormalDerivative[1][2] == 3.0);
   assert(surface.points[0].geometry.spatialMetric[0][0] == 4.0);
+  const InterpolatedSurface& constSurface = surface;
+  assert(constSurface.value({0.5 + 0.5, 0.1 + 0.15, 0.5}).geometry.traceK == 5.0);
   assert(surface.isConsistent());
   assert(surface.matches(ahGuess));
+
+  bool missingSurfaceCoordinateRejected = false;
+  try {
+    (void)surface.value({1.0, 0.75, 0.5});
+  } catch (const std::out_of_range&) {
+    missingSurfaceCoordinateRejected = true;
+  }
+  assert(missingSurfaceCoordinateRejected);
 
   AHGuess differentGuess = ahGuess;
   differentGuess.points[1].r = 1.2;
