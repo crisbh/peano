@@ -46,6 +46,7 @@ target_compile_definitions(ApparentHorizonFinderCore PUBLIC IncludeApparentHoriz
 find_package(VTK REQUIRED COMPONENTS
   CommonCore
   CommonDataModel
+  FiltersCore
   IOXML
 )
 
@@ -65,12 +66,13 @@ target_link_libraries(ApparentHorizonFinderPostprocess
   PRIVATE
     VTK::CommonCore
     VTK::CommonDataModel
+    VTK::FiltersCore
     VTK::IOXML
 )
 
 vtk_module_autoinit(
   TARGETS ApparentHorizonFinderPostprocess
-  MODULES VTK::CommonCore VTK::CommonDataModel VTK::IOXML
+  MODULES VTK::CommonCore VTK::CommonDataModel VTK::FiltersCore VTK::IOXML
 )
 
 add_executable(ahf-postprocess ahf-postprocess.cpp)

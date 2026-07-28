@@ -41,6 +41,18 @@ or:
 cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/vtk
 ```
 
+## Splitting a Large Snapshot (optional)
+
+A big `.vtu` snapshot is read in one go, which needs a lot of memory. To read it
+more cheaply, first split it into smaller pieces with the helper script:
+
+```bash
+python3 repartition_vtu.py snapshot.vtu pieces/snapshot.pvtu -k 8
+```
+
+This produces `pieces/snapshot.pvtu` (a summary) plus its piece files. Give that `.pvtu` to the finder instead of the original `.vtu`: it then reads one piece at a time and uses far less memory. You only need to do this once per snapshot. `ahf-io-tests` test both `vtu` and `pvtu` (under a pieces directory) approach.
+Requires Python with the `vtk` module. 
+
 ## Local Postprocessing Build With Tests
 
 Tests are optional and disabled by default. Enable them with:
