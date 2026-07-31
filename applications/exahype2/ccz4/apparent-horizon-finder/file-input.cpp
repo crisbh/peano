@@ -108,7 +108,7 @@ void appendGridCells(vtkUnstructuredGrid* grid,
   }
 
   const std::size_t base = gridData.coordinates.size();
-  const std::size_t numberOfVariables = gridData.numberOfVariables;
+  constexpr std::size_t numberOfVariables = GridData::numberOfVariables;
   gridData.coordinates.resize(base + static_cast<std::size_t>(numberOfCells));
   gridData.values.resize((base + static_cast<std::size_t>(numberOfCells)) * numberOfVariables);
 
