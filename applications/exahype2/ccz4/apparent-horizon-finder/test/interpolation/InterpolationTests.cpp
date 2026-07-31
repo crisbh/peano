@@ -7,21 +7,18 @@ namespace exahype2::ccz4::ahf::tests::interpolation {
 static_assert(requires(const GridData& gridData,
                        const AHGuess& ahGuess,
                        const ReferencePoint& referencePoint,
-                       const VariableMapping& variableMapping,
                        InterpolatedShell& interpolatedShell,
                        const std::vector<AngularSample>& angularSamples) {
   InterpolateFromCartesianToShell(
     gridData,
     ahGuess,
     referencePoint,
-    variableMapping,
     interpolatedShell
   );
   InterpolateFromCartesianToShell(
     gridData,
     ahGuess,
     referencePoint,
-    variableMapping,
     interpolatedShell,
     angularSamples
   );

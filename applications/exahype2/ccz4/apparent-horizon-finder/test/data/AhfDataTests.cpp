@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "../../ahf-data.h"
+#include "../../file-input.h"
 
 namespace exahype2::ccz4::ahf::tests::data {
 
@@ -53,7 +54,7 @@ void testGridDataStruct() {
     {0.0, 0.1, 0.2},
     {1.0, 1.1, 1.2}
   };
-  gridData.setNumberOfVariables(3);
+  gridData.values.resize(gridData.coordinates.size() * GridData::numberOfVariables);
 
   gridData.value({0.0, 0.1, 0.2}, 0) = 10.0;
   gridData.value({0.0, 0.1, 0.2}, 1) = 11.0;
@@ -63,7 +64,7 @@ void testGridDataStruct() {
   gridData.value({1.0, 1.1, 1.2}, 2) = 22.0;
 
   assert(gridData.numberOfPoints() == 2);
-  assert(gridData.numberOfVariables == 3);
+  assert(gridData.numberOfVariables == 14);
   assert(gridData.isConsistent());
   assert(gridData.coordinates[1].x == 1.0);
   assert(gridData.coordinates[1].y == 1.1);
@@ -71,6 +72,10 @@ void testGridDataStruct() {
   assert(gridData.value({0.0, 0.1, 0.2}, 2) == 12.0);
   assert(gridData.value({1.0, 1.1, 1.2}, 1) == 21.0);
   assert(gridData.value({1.0, 0.5 + 0.6, 1.2}, 1) == 21.0);
+
+  GridData incompleteRow = gridData;
+  incompleteRow.values.pop_back();
+  assert(!incompleteRow.isConsistent());
 
   const GridData& constGridData = gridData;
   assert(constGridData.value({1.0, 1.1, 1.2}, 2) == 22.0);
@@ -85,7 +90,7 @@ void testGridDataStruct() {
 
   bool invalidVariableRejected = false;
   try {
-    (void)gridData.value({0.0, 0.1, 0.2}, 3);
+    (void)gridData.value({0.0, 0.1, 0.2}, GridData::numberOfVariables);
   } catch (const std::out_of_range&) {
     invalidVariableRejected = true;
   }
@@ -94,26 +99,27 @@ void testGridDataStruct() {
   std::cout << "GridData stores coordinates and point-major scalar values" << std::endl;
 }
 
-void testVariableMappingStruct() {
-  const VariableMapping mapping{
+void testSourceVariableMappingStruct() {
+  const SourceVariableMapping mapping{
     .conformalMetric = {0, 1, 2, 3, 4, 5},
     .conformalExtrinsicCurvature = {6, 7, 8, 9, 10, 11},
     .traceK = 53,
-    .conformalFactor = 54,
-    .conformalFactorEncoding = VariableMapping::ConformalFactorEncoding::Phi
+    .conformalFactor = 54
   };
 
-  assert(mapping.conformalMetric[VariableMapping::Index{0}] == 0);
-  assert(mapping.conformalExtrinsicCurvature[VariableMapping::Index{5}] == 11);
+  assert(mapping.conformalMetric[SourceVariableMapping::Index{0}] == 0);
+  assert(mapping.conformalExtrinsicCurvature[SourceVariableMapping::Index{5}] == 11);
   assert(mapping.traceK == 53);
   assert(mapping.conformalFactor == 54);
+  assert(mapping.isComplete());
   assert(mapping.isValid(59));
   assert(!mapping.isValid(54));
 
-  const VariableMapping incompleteMapping;
+  const SourceVariableMapping incompleteMapping;
+  assert(!incompleteMapping.isComplete());
   assert(!incompleteMapping.isValid(59));
 
-  std::cout << "VariableMapping stores validated GridData variable indices" << std::endl;
+  std::cout << "SourceVariableMapping stores validated source VTU component indices" << std::endl;
 }
 
 void testInterpolatedShellStruct() {
@@ -233,7 +239,7 @@ int main() {
   testAHGuessStruct();
   testAngularSampleStruct();
   testGridDataStruct();
-  testVariableMappingStruct();
+  testSourceVariableMappingStruct();
   testInterpolatedShellStruct();
   testInterpolatedSurfaceStruct();
 

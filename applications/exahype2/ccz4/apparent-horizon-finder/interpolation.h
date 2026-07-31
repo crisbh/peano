@@ -13,7 +13,6 @@ namespace exahype2::ccz4::ahf {
 void InterpolateFromCartesianToShell(const GridData& gridData,
                                      const AHGuess& ahGuess,
                                      const ReferencePoint& referencePoint,
-                                     const VariableMapping& variableMapping,
                                      InterpolatedShell& interpolatedShell,
                                      std::span<const AngularSample> angularSamples = {});
 

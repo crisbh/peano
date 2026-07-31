@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -56,6 +57,107 @@ struct GridCoordinate {
 };
 
 /**
+ * Fixed column layout of every compact CCZ4 row stored in GridData.
+ *
+ * This enum is the only field-index contract used after file input. Its values
+ * are independent of the component numbers in a source VTU tuple.
+ */
+enum class CompactField : std::size_t {
+  GammaTildeXX = 0,
+  GammaTildeXY = 1,
+  GammaTildeXZ = 2,
+  GammaTildeYY = 3,
+  GammaTildeYZ = 4,
+  GammaTildeZZ = 5,
+  ATildeXX = 6,
+  ATildeXY = 7,
+  ATildeXZ = 8,
+  ATildeYY = 9,
+  ATildeYZ = 10,
+  ATildeZZ = 11,
+  TraceK = 12,
+  Phi = 13,
+  Count = 14
+};
+
+inline constexpr std::size_t NumberOfCompactCCZ4Fields =
+  static_cast<std::size_t>(CompactField::Count);
+
+/**
+ * Reader-side mapping from compact CCZ4 fields to components of a source tuple.
+ * Source indices are used only while constructing a compact GridData row.
+ */
+struct SourceVariableMapping {
+  using Index = std::size_t;
+  static constexpr Index NotStored = std::numeric_limits<Index>::max();
+
+  std::array<Index, 6> conformalMetric{
+    NotStored, NotStored, NotStored, NotStored, NotStored, NotStored
+  };
+  std::array<Index, 6> conformalExtrinsicCurvature{
+    NotStored, NotStored, NotStored, NotStored, NotStored, NotStored
+  };
+  Index traceK = NotStored;
+  Index conformalFactor = NotStored;
+
+  std::array<Index, NumberOfCompactCCZ4Fields> componentsInCompactOrder() const {
+    return {
+      conformalMetric[0], conformalMetric[1], conformalMetric[2],
+      conformalMetric[3], conformalMetric[4], conformalMetric[5],
+      conformalExtrinsicCurvature[0], conformalExtrinsicCurvature[1],
+      conformalExtrinsicCurvature[2], conformalExtrinsicCurvature[3],
+      conformalExtrinsicCurvature[4], conformalExtrinsicCurvature[5],
+      traceK, conformalFactor
+    };
+  }
+
+  bool isComplete() const {
+    const auto components = componentsInCompactOrder();
+    return std::all_of(components.begin(), components.end(), [](Index index) {
+      return index != NotStored;
+    });
+  }
+
+  bool isValid(std::size_t numberOfSourceComponents) const {
+    for (Index index : conformalMetric) {
+      if (index >= numberOfSourceComponents) {
+        return false;
+      }
+    }
+    for (Index index : conformalExtrinsicCurvature) {
+      if (index >= numberOfSourceComponents) {
+        return false;
+      }
+    }
+    return traceK < numberOfSourceComponents
+        && conformalFactor < numberOfSourceComponents;
+  }
+};
+
+/**
+ * Apply the sole source-index to compact-index transformation. Both symmetric
+ * tensors use xx, xy, xz, yy, yz, zz order; K and direct phi occupy columns 12
+ * and 13 respectively.
+ */
+inline std::array<double, NumberOfCompactCCZ4Fields> CompactCCZ4SourceTuple(
+  std::span<const double> sourceTuple,
+  const SourceVariableMapping& sourceMapping
+) {
+  if (!sourceMapping.isValid(sourceTuple.size())) {
+    throw std::invalid_argument(
+      "CompactCCZ4SourceTuple: source mapping is incomplete or outside the source tuple");
+  }
+
+  const auto sourceComponents = sourceMapping.componentsInCompactOrder();
+
+  std::array<double, NumberOfCompactCCZ4Fields> compact{};
+  for (std::size_t column = 0; column < compact.size(); ++column) {
+    compact[column] = sourceTuple[sourceComponents[column]];
+  }
+  return compact;
+}
+
+/**
  * Pointwise Cartesian grid data.
  *
  * Values are stored as a flat point-major array:
@@ -64,19 +166,20 @@ struct GridCoordinate {
 struct GridData {
   std::vector<GridCoordinate> coordinates;
   std::vector<double> values;
-  std::size_t numberOfVariables = 0;
+
+  static constexpr std::size_t numberOfVariables = NumberOfCompactCCZ4Fields;
 
   std::size_t numberOfPoints() const {
     return coordinates.size();
   }
 
-  void setNumberOfVariables(std::size_t newNumberOfVariables) {
-    numberOfVariables = newNumberOfVariables;
-    values.resize(coordinates.size() * numberOfVariables);
+  void resize(std::size_t numberOfPoints) {
+    coordinates.resize(numberOfPoints);
+    values.resize(numberOfPoints * numberOfVariables);
   }
 
   bool isConsistent() const {
-    return numberOfVariables > 0 && values.size() == coordinates.size() * numberOfVariables;
+    return values.size() == coordinates.size() * numberOfVariables;
   }
 
   double& value(const GridCoordinate& coordinate, std::size_t variableIndex) {
@@ -85,6 +188,14 @@ struct GridData {
 
   const double& value(const GridCoordinate& coordinate, std::size_t variableIndex) const {
     return values[valueIndex(coordinate, variableIndex)];
+  }
+
+  double& value(const GridCoordinate& coordinate, CompactField field) {
+    return value(coordinate, static_cast<std::size_t>(field));
+  }
+
+  const double& value(const GridCoordinate& coordinate, CompactField field) const {
+    return value(coordinate, static_cast<std::size_t>(field));
   }
 
 private:
@@ -116,48 +227,6 @@ private:
     return std::abs(first - second)
         <= AbsoluteTolerance
          + RelativeTolerance * std::max(std::abs(first), std::abs(second));
-  }
-};
-
-/**
- * User-provided mapping from AHF quantities to variable indices in GridData.
- *
- * Symmetric tensors use the component order xx, xy, xz, yy, yz, zz. The
- * mapping contains indices only; the corresponding values remain in
- * GridData::values.
- */
-struct VariableMapping {
-  using Index = std::size_t;
-
-  static constexpr Index NotStored = std::numeric_limits<Index>::max();
-
-  enum class ConformalFactorEncoding {
-    Phi,
-    LogPhi
-  };
-
-  std::array<Index, 6> conformalMetric{
-    NotStored, NotStored, NotStored, NotStored, NotStored, NotStored
-  };
-  std::array<Index, 6> conformalExtrinsicCurvature{
-    NotStored, NotStored, NotStored, NotStored, NotStored, NotStored
-  };
-  Index traceK = NotStored;
-  Index conformalFactor = NotStored;
-  ConformalFactorEncoding conformalFactorEncoding = ConformalFactorEncoding::Phi;
-
-  bool isValid(std::size_t numberOfVariables) const {
-    for (Index index : conformalMetric) {
-      if (index >= numberOfVariables) {
-        return false;
-      }
-    }
-    for (Index index : conformalExtrinsicCurvature) {
-      if (index >= numberOfVariables) {
-        return false;
-      }
-    }
-    return traceK < numberOfVariables && conformalFactor < numberOfVariables;
   }
 };
 

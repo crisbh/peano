@@ -5,14 +5,12 @@ namespace exahype2::ccz4::ahf {
 void InterpolateFromCartesianToShell(const GridData& gridData,
                                      const AHGuess& ahGuess,
                                      const ReferencePoint& referencePoint,
-                                     const VariableMapping& variableMapping,
                                      InterpolatedShell& interpolatedShell,
                                      std::span<const AngularSample> angularSamples) {
   (void)gridData;
   (void)ahGuess;
   (void)referencePoint;
   (void)angularSamples;
-  (void)variableMapping;
   (void)interpolatedShell;
   // Interpolate and calculate all necessary quantities from the 3D Cartesian grid to the 3D spherical
   //          coordinates using the given angular coordinates sample ($\{\rho_I,\sigma_I\}$) within a radius range

@@ -9,7 +9,7 @@ namespace exahype2::ccz4::ahf {
 
 /**
  * Load a grid dataset from VTK XML unstructured-grid data, keeping only the
- * variables selected by @p variableMapping.
+ * variables selected by @p sourceMapping.
  *
  * The input may be either a single-piece `.vtu` (read in one shot) or a
  * multi-piece `.pvtu` series (dispatched by the `.pvtu` extension). The `.pvtu`
@@ -21,31 +21,28 @@ namespace exahype2::ccz4::ahf {
  * The CCZ4 finite-volume output stores its unknowns as a single multi-component
  * cell-data array (one finite volume per cell). Rather than copying all
  * components, this reader stores only the source components referenced by the
- * mapping. This keeps GridData small: a full CCZ4 mapping selects 14 of the 64
- * stored components, so GridData::values shrinks accordingly.
+ * source mapping. The reader requires all fourteen AHF fields and translates
+ * them into the fixed CompactField layout. Source component numbers do not
+ * survive this boundary and must never be used by interpolation.
  *
  * Output layout. GridData::coordinates[i] is the centre of cell i. GridData is
- * compact: it has one variable column per *set* field of the mapping, in this
- * fixed order, skipping any field left at VariableMapping::NotStored:
+ * compact: every row has exactly fourteen columns in this fixed order:
  *   conformalMetric              xx, xy, xz, yy, yz, zz   (columns 0..5)
  *   conformalExtrinsicCurvature  xx, xy, xz, yy, yz, zz   (columns 6..11)
  *   traceK                                                (column 12)
  *   conformalFactor                                       (column 13)
- * GridData::numberOfVariables equals the number of set fields. The source
- * component index that feeds column k is therefore the k-th set field of the
- * mapping in the order above; the mapping's own indices refer to the file, not
- * to the compact GridData layout.
+ * CompactField names these columns. SourceVariableMapping names components of
+ * the input tuple only.
  *
  * @param inputFile       path to a .vtu file.
  * @param gridData        output; any previous content is overwritten.
- * @param variableMapping selects which source components to read; every set
- *                        index must be a valid component of the cell-data array.
+ * @param sourceMapping identifies all fourteen source tuple components.
  * @throws std::runtime_error if the file cannot be read, holds no cell data,
- *         the mapping selects no field, or a selected index is out of range.
+ *         the mapping is incomplete, or a selected index is out of range.
  */
 void ReadGridFromFile(const std::string& inputFile,
                       GridData& gridData,
-                      const VariableMapping& variableMapping);
+                      const SourceVariableMapping& sourceMapping);
 
 }  // namespace exahype2::ccz4::ahf
 

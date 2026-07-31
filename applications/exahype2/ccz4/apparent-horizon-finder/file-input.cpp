@@ -27,36 +27,16 @@ bool hasExtension(const std::string& path, const std::string& extension) {
 }
 
 /**
- * Collect the source component indices selected by the mapping, in the fixed
- * field order documented in file-input.h. Fields left at NotStored are skipped;
- * each surviving index becomes one GridData column.
+ * Collect the required source components in CompactField order.
  */
-std::vector<std::size_t> selectedComponents(const VariableMapping& variableMapping) {
-  std::vector<std::size_t> selected;
-  selected.reserve(14);
-
-  const auto append = [&selected](VariableMapping::Index index) {
-    if (index != VariableMapping::NotStored) {
-      selected.push_back(index);
-    }
-  };
-
-  for (VariableMapping::Index index : variableMapping.conformalMetric) {
-    append(index);
-  }
-  for (VariableMapping::Index index : variableMapping.conformalExtrinsicCurvature) {
-    append(index);
-  }
-  append(variableMapping.traceK);
-  append(variableMapping.conformalFactor);
-
-  return selected;
+std::vector<std::size_t> selectedComponents(const SourceVariableMapping& sourceMapping) {
+  const auto components = sourceMapping.componentsInCompactOrder();
+  return {components.begin(), components.end()};
 }
 
 /**
  * Append every cell of @p grid to @p gridData: the cell centre as a coordinate
- * and the selected source components as one compact value row. gridData must
- * already have its number of variables set to selected.size().
+ * and the selected source components as one fixed-size compact value row.
  */
 void appendGridCells(vtkUnstructuredGrid* grid,
                      const std::vector<std::size_t>& selected,
@@ -151,7 +131,7 @@ void readWholeVtu(const std::string& inputFile,
 
   gridData.coordinates.clear();
   gridData.values.clear();
-  gridData.setNumberOfVariables(selected.size());
+  static_assert(GridData::numberOfVariables == NumberOfCompactCCZ4Fields);
   gridData.coordinates.reserve(static_cast<std::size_t>(grid->GetNumberOfCells()));
   gridData.values.reserve(static_cast<std::size_t>(grid->GetNumberOfCells()) * selected.size());
 
@@ -182,7 +162,6 @@ void readPvtuStreaming(const std::string& inputFile,
 
   gridData.coordinates.clear();
   gridData.values.clear();
-  gridData.setNumberOfVariables(selected.size());
 
   for (int piece = 0; piece < numberOfPieces; ++piece) {
     // Fresh reader per piece: reusing one reader across UpdatePiece() calls
@@ -215,12 +194,12 @@ void readPvtuStreaming(const std::string& inputFile,
 
 void ReadGridFromFile(const std::string& inputFile,
                       GridData& gridData,
-                      const VariableMapping& variableMapping) {
-  const std::vector<std::size_t> selected = selectedComponents(variableMapping);
-  if (selected.empty()) {
+                      const SourceVariableMapping& sourceMapping) {
+  if (!sourceMapping.isComplete()) {
     throw std::runtime_error(
-      "ReadGridFromFile: the variable mapping selects no variable to read");
+      "ReadGridFromFile: source mapping must define all fourteen CCZ4 fields");
   }
+  const auto selected = selectedComponents(sourceMapping);
 
   if (hasExtension(inputFile, ".pvtu")) {
     readPvtuStreaming(inputFile, selected, gridData);

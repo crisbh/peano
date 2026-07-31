@@ -39,14 +39,14 @@ void checkSampleGrid(const std::string& inputFile) {
   // conformal metric 0-5 -> columns 0-5, conformal extrinsic curvature 6-11 ->
   // columns 6-11, traceK (source 53) -> column 12, conformal factor (source 54)
   // -> column 13.
-  VariableMapping variableMapping;
-  variableMapping.conformalMetric = {0, 1, 2, 3, 4, 5};
-  variableMapping.conformalExtrinsicCurvature = {6, 7, 8, 9, 10, 11};
-  variableMapping.traceK = 53;
-  variableMapping.conformalFactor = 54;
+  SourceVariableMapping sourceMapping;
+  sourceMapping.conformalMetric = {0, 1, 2, 3, 4, 5};
+  sourceMapping.conformalExtrinsicCurvature = {6, 7, 8, 9, 10, 11};
+  sourceMapping.traceK = 53;
+  sourceMapping.conformalFactor = 54;
 
   GridData gridData;
-  ReadGridFromFile(inputFile, gridData, variableMapping);
+  ReadGridFromFile(inputFile, gridData, sourceMapping);
 
   // sample_data_S: 3088448 cells; the mapping keeps 14 variables.
   constexpr std::size_t ExpectedNumberOfCells = 3088448;
@@ -124,6 +124,53 @@ void checkSampleGrid(const std::string& inputFile) {
             << " variables each from " << inputFile << std::endl;
 }
 
+void testCompactCCZ4SourceTuple() {
+  static_assert(static_cast<std::size_t>(CompactField::GammaTildeXX) == 0);
+  static_assert(static_cast<std::size_t>(CompactField::GammaTildeXY) == 1);
+  static_assert(static_cast<std::size_t>(CompactField::GammaTildeXZ) == 2);
+  static_assert(static_cast<std::size_t>(CompactField::GammaTildeYY) == 3);
+  static_assert(static_cast<std::size_t>(CompactField::GammaTildeYZ) == 4);
+  static_assert(static_cast<std::size_t>(CompactField::GammaTildeZZ) == 5);
+  static_assert(static_cast<std::size_t>(CompactField::ATildeXX) == 6);
+  static_assert(static_cast<std::size_t>(CompactField::ATildeXY) == 7);
+  static_assert(static_cast<std::size_t>(CompactField::ATildeXZ) == 8);
+  static_assert(static_cast<std::size_t>(CompactField::ATildeYY) == 9);
+  static_assert(static_cast<std::size_t>(CompactField::ATildeYZ) == 10);
+  static_assert(static_cast<std::size_t>(CompactField::ATildeZZ) == 11);
+  static_assert(static_cast<std::size_t>(CompactField::TraceK) == 12);
+  static_assert(static_cast<std::size_t>(CompactField::Phi) == 13);
+
+  SourceVariableMapping sourceMapping;
+  sourceMapping.conformalMetric = {17, 3, 42, 8, 31, 1};
+  sourceMapping.conformalExtrinsicCurvature = {58, 27, 14, 49, 6, 35};
+  sourceMapping.traceK = 53;
+  sourceMapping.conformalFactor = 54;
+
+  std::array<double, 64> sourceTuple{};
+  for (std::size_t source = 0; source < sourceTuple.size(); ++source) {
+    sourceTuple[source] = 1000.0 + 17.0 * static_cast<double>(source);
+  }
+
+  const auto compact = CompactCCZ4SourceTuple(sourceTuple, sourceMapping);
+  static_assert(compact.size() == NumberOfCompactCCZ4Fields);
+
+  const std::array<std::size_t, NumberOfCompactCCZ4Fields> expectedSources{
+    17, 3, 42, 8, 31, 1,
+    58, 27, 14, 49, 6, 35,
+    53, 54
+  };
+  for (std::size_t compactColumn = 0; compactColumn < compact.size(); ++compactColumn) {
+    assert(compact[compactColumn] == sourceTuple[expectedSources[compactColumn]]);
+  }
+
+  assert(compact[static_cast<std::size_t>(CompactField::TraceK)] == sourceTuple[53]);
+  assert(compact[static_cast<std::size_t>(CompactField::Phi)] == sourceTuple[54]);
+  assert(GridData::numberOfVariables == 14);
+
+  std::cout << "Source tuple compaction preserves the fixed fourteen-column CCZ4 contract"
+            << std::endl;
+}
+
 void testReadGridFromFile() {
   const std::string vtuFile = samplePath("sample_data_S.vtu");
   const std::string pvtuFile = samplePath("pieces/sample_data_S.pvtu");
@@ -163,6 +210,7 @@ int main() {
 
   std::cout << "Apparent Horizon Finder I/O tests begin..." << std::endl;
 
+  testCompactCCZ4SourceTuple();
   testReadGridFromFile();
   testReadGridFromPeano();
   testWriteAHToFile();
