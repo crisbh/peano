@@ -92,6 +92,33 @@ inline constexpr std::array<const char*, NumberOfCompactCCZ4Fields> CompactField
   "K", "phi"
 };
 
+/** Symmetric-tensor component order used by both compact CCZ4 tensors. */
+enum class SymmetricTensorComponent : std::size_t {
+  XX = 0,
+  XY = 1,
+  XZ = 2,
+  YY = 3,
+  YZ = 4,
+  ZZ = 5,
+  Count = 6
+};
+
+inline constexpr std::size_t NumberOfSymmetricTensorComponents =
+  static_cast<std::size_t>(SymmetricTensorComponent::Count);
+
+inline constexpr std::array<CompactField, NumberOfSymmetricTensorComponents>
+ConformalMetricCompactFields{
+  CompactField::GammaTildeXX, CompactField::GammaTildeXY,
+  CompactField::GammaTildeXZ, CompactField::GammaTildeYY,
+  CompactField::GammaTildeYZ, CompactField::GammaTildeZZ
+};
+
+inline constexpr std::array<CompactField, NumberOfSymmetricTensorComponents>
+ConformalExtrinsicCurvatureCompactFields{
+  CompactField::ATildeXX, CompactField::ATildeXY, CompactField::ATildeXZ,
+  CompactField::ATildeYY, CompactField::ATildeYZ, CompactField::ATildeZZ
+};
+
 /**
  * Reader-side mapping from compact CCZ4 fields to components of a source tuple.
  * Source indices are used only while constructing a compact GridData row.
@@ -201,6 +228,69 @@ inline std::array<double, NumberOfCompactCCZ4Fields> CompactCCZ4SourceTuple(
 }
 
 /**
+ * Read-only, zero-copy view of one fixed-layout compact CCZ4 cell row.
+ */
+class CompactCCZ4CellView {
+public:
+  explicit CompactCCZ4CellView(
+    std::span<const double, NumberOfCompactCCZ4Fields> values
+  ): _values(values) {}
+
+  std::span<const double, NumberOfCompactCCZ4Fields> row() const {
+    return _values;
+  }
+
+  double conformalMetricComponent(std::size_t component) const {
+    return tensorComponent(component, ConformalMetricCompactFields, "conformal metric");
+  }
+
+  double conformalMetricComponent(SymmetricTensorComponent component) const {
+    return conformalMetricComponent(static_cast<std::size_t>(component));
+  }
+
+  double conformalExtrinsicCurvatureComponent(std::size_t component) const {
+    return tensorComponent(
+      component,
+      ConformalExtrinsicCurvatureCompactFields,
+      "conformal extrinsic curvature"
+    );
+  }
+
+  double conformalExtrinsicCurvatureComponent(SymmetricTensorComponent component) const {
+    return conformalExtrinsicCurvatureComponent(static_cast<std::size_t>(component));
+  }
+
+  double traceK() const {
+    return compactValue(CompactField::TraceK);
+  }
+
+  double phi() const {
+    return compactValue(CompactField::Phi);
+  }
+
+private:
+  double compactValue(CompactField field) const {
+    return _values[static_cast<std::size_t>(field)];
+  }
+
+  double tensorComponent(
+    std::size_t component,
+    const std::array<CompactField, NumberOfSymmetricTensorComponents>& fields,
+    const char* tensorName
+  ) const {
+    if (component >= fields.size()) {
+      throw std::out_of_range(
+        "CompactCCZ4CellView: " + std::string(tensorName)
+        + " component index " + std::to_string(component)
+        + " is outside xx, xy, xz, yy, yz, zz");
+    }
+    return compactValue(fields[component]);
+  }
+
+  std::span<const double, NumberOfCompactCCZ4Fields> _values;
+};
+
+/**
  * Pointwise Cartesian grid data.
  *
  * Values are stored as a flat point-major array:
@@ -223,6 +313,28 @@ struct GridData {
 
   bool isConsistent() const {
     return values.size() == coordinates.size() * numberOfVariables;
+  }
+
+  CompactCCZ4CellView cell(std::size_t cellIndex) const {
+    if (!isConsistent()) {
+      throw std::logic_error(
+        "GridData::cell: malformed compact data; expected "
+        + std::to_string(coordinates.size() * numberOfVariables) + " values for "
+        + std::to_string(coordinates.size()) + " cells, but found "
+        + std::to_string(values.size()));
+    }
+    if (cellIndex >= coordinates.size()) {
+      throw std::out_of_range(
+        "GridData::cell: cell index " + std::to_string(cellIndex)
+        + " is outside " + std::to_string(coordinates.size()) + " cells");
+    }
+
+    return CompactCCZ4CellView(
+      std::span<const double, NumberOfCompactCCZ4Fields>(
+        values.data() + cellIndex * numberOfVariables,
+        numberOfVariables
+      )
+    );
   }
 
   double& value(const GridCoordinate& coordinate, std::size_t variableIndex) {

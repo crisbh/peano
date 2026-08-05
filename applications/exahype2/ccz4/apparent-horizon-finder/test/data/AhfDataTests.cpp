@@ -99,6 +99,89 @@ void testGridDataStruct() {
   std::cout << "GridData stores coordinates and point-major scalar values" << std::endl;
 }
 
+void testCompactCellAccessor() {
+  GridData gridData;
+  gridData.coordinates = {{0.0, 0.0, 0.0}, {1.0, 1.0, 1.0}};
+  gridData.values.resize(gridData.coordinates.size() * GridData::numberOfVariables);
+  for (std::size_t column = 0; column < GridData::numberOfVariables; ++column) {
+    gridData.values[column] = 100.0 + static_cast<double>(column);
+    gridData.values[GridData::numberOfVariables + column] =
+      200.0 + static_cast<double>(column);
+  }
+
+  const GridData& constGridData = gridData;
+  const CompactCCZ4CellView first = constGridData.cell(0);
+  const CompactCCZ4CellView second = constGridData.cell(1);
+
+  // The view aliases GridData storage instead of copying the fourteen values.
+  assert(first.row().data() == gridData.values.data());
+  assert(second.row().data() == gridData.values.data() + GridData::numberOfVariables);
+  assert(first.row().size() == NumberOfCompactCCZ4Fields);
+
+  for (std::size_t component = 0; component < NumberOfSymmetricTensorComponents; ++component) {
+    assert(first.conformalMetricComponent(component) == 100.0 + component);
+    assert(first.conformalExtrinsicCurvatureComponent(component) == 106.0 + component);
+    assert(second.conformalMetricComponent(component) == 200.0 + component);
+    assert(second.conformalExtrinsicCurvatureComponent(component) == 206.0 + component);
+  }
+
+  assert(first.conformalMetricComponent(SymmetricTensorComponent::XX) == 100.0);
+  assert(first.conformalMetricComponent(SymmetricTensorComponent::ZZ) == 105.0);
+  assert(first.conformalExtrinsicCurvatureComponent(SymmetricTensorComponent::XX) == 106.0);
+  assert(first.conformalExtrinsicCurvatureComponent(SymmetricTensorComponent::ZZ) == 111.0);
+  assert(first.traceK() == 112.0);
+  assert(first.phi() == 113.0);
+  assert(second.traceK() == 212.0);
+  assert(second.phi() == 213.0);
+
+  // This specifically fails if the source VTU index 53 is used on a 14-value row.
+  assert(first.traceK() == first.row()[static_cast<std::size_t>(CompactField::TraceK)]);
+  assert(static_cast<std::size_t>(CompactField::TraceK) == 12);
+
+  bool invalidCellRejected = false;
+  try {
+    (void)constGridData.cell(2);
+  } catch (const std::out_of_range& error) {
+    invalidCellRejected = true;
+    assert(std::string(error.what()).find("cell index 2") != std::string::npos);
+  }
+  assert(invalidCellRejected);
+
+  bool invalidMetricComponentRejected = false;
+  try {
+    (void)first.conformalMetricComponent(NumberOfSymmetricTensorComponents);
+  } catch (const std::out_of_range& error) {
+    invalidMetricComponentRejected = true;
+    assert(std::string(error.what()).find("conformal metric component index 6")
+           != std::string::npos);
+  }
+  assert(invalidMetricComponentRejected);
+
+  bool invalidATildeComponentRejected = false;
+  try {
+    (void)first.conformalExtrinsicCurvatureComponent(NumberOfSymmetricTensorComponents);
+  } catch (const std::out_of_range& error) {
+    invalidATildeComponentRejected = true;
+    assert(std::string(error.what()).find(
+      "conformal extrinsic curvature component index 6") != std::string::npos);
+  }
+  assert(invalidATildeComponentRejected);
+
+  GridData malformed = gridData;
+  malformed.values.pop_back();
+  bool malformedRejected = false;
+  try {
+    (void)malformed.cell(0);
+  } catch (const std::logic_error& error) {
+    malformedRejected = true;
+    assert(std::string(error.what()).find("malformed compact data") != std::string::npos);
+  }
+  assert(malformedRejected);
+
+  std::cout << "Compact cell accessor provides checked zero-copy named field access"
+            << std::endl;
+}
+
 void testSourceVariableMappingStruct() {
   const SourceVariableMapping mapping{
     .conformalMetric = {0, 1, 2, 3, 4, 5},
@@ -239,6 +322,7 @@ int main() {
   testAHGuessStruct();
   testAngularSampleStruct();
   testGridDataStruct();
+  testCompactCellAccessor();
   testSourceVariableMappingStruct();
   testInterpolatedShellStruct();
   testInterpolatedSurfaceStruct();
