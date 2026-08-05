@@ -226,6 +226,167 @@ LinearPolynomialFit FitLinearPolynomial(
   return result;
 }
 
+CompactLinearFit FitCompactLinearPolynomial(
+  const GridData& gridData,
+  std::span<const std::size_t> neighbourIndices,
+  const GridCoordinate& target
+) {
+  constexpr std::size_t BasisSize = 4;
+  constexpr std::size_t FieldCount = NumberOfCompactFields;
+
+  // 1. Validate the stencil, target, and fixed 14-column grid layout.
+  if (neighbourIndices.size() < BasisSize) {
+    throw std::invalid_argument(
+      "FitCompactLinearPolynomial: degree-1 reconstruction requires at least four neighbours");
+  }
+  if (!std::isfinite(target.x) || !std::isfinite(target.y)
+      || !std::isfinite(target.z)) {
+    throw std::invalid_argument(
+      "FitCompactLinearPolynomial: target must be finite");
+  }
+  if (!gridData.isConsistent()) {
+    throw std::invalid_argument(
+      "FitCompactLinearPolynomial: GridData must contain fourteen values per cell");
+  }
+
+  // 2. Set ell to the farthest-neighbour distance and validate coordinates.
+  double lengthScale = 0.0;
+  for (std::size_t cellIndex : neighbourIndices) {
+    if (cellIndex >= gridData.coordinates.size()) {
+      throw std::out_of_range(
+        "FitCompactLinearPolynomial: neighbour cell index is out of range");
+    }
+    const GridCoordinate& sample = gridData.coordinates[cellIndex];
+    if (!std::isfinite(sample.x) || !std::isfinite(sample.y)
+        || !std::isfinite(sample.z)) {
+      throw std::invalid_argument(
+        "FitCompactLinearPolynomial: neighbour coordinates must be finite");
+    }
+    lengthScale = std::max(
+      lengthScale,
+      std::hypot(sample.x - target.x, sample.y - target.y, sample.z - target.z)
+    );
+  }
+  if (!(lengthScale > 0.0) || !std::isfinite(lengthScale)) {
+    throw std::invalid_argument(
+      "FitCompactLinearPolynomial: neighbours are geometrically rank deficient");
+  }
+
+  // 3. Build the shared n-by-4 design matrix [1, X, Y, Z].
+  std::array<std::vector<double>, BasisSize> columns;
+  for (auto& column : columns) {
+    column.resize(neighbourIndices.size());
+  }
+  for (std::size_t row = 0; row < neighbourIndices.size(); ++row) {
+    const GridCoordinate& sample = gridData.coordinates[neighbourIndices[row]];
+    columns[0][row] = 1.0;
+    columns[1][row] = (sample.x - target.x) / lengthScale;
+    columns[2][row] = (sample.y - target.y) / lengthScale;
+    columns[3][row] = (sample.z - target.z) / lengthScale;
+  }
+
+  // 4. Factor the design matrix once using column-pivoted modified Gram-Schmidt QR.
+  const auto dot = [](const std::vector<double>& first,
+                      const std::vector<double>& second) {
+    return std::inner_product(first.begin(), first.end(), second.begin(), 0.0);
+  };
+  std::array<double, BasisSize> squaredNorm{};
+  for (std::size_t column = 0; column < BasisSize; ++column) {
+    squaredNorm[column] = dot(columns[column], columns[column]);
+  }
+  const double largestInitialNorm =
+    std::sqrt(*std::max_element(squaredNorm.begin(), squaredNorm.end()));
+  const double rankTolerance =
+    64.0 * std::numeric_limits<double>::epsilon()
+    * static_cast<double>(neighbourIndices.size()) * largestInitialNorm;
+
+  std::array<std::array<double, BasisSize>, BasisSize> upperTriangular{};
+  std::array<std::size_t, BasisSize> permutation{0, 1, 2, 3};
+  for (std::size_t pivot = 0; pivot < BasisSize; ++pivot) {
+    const auto largest = std::max_element(
+      squaredNorm.begin() + pivot, squaredNorm.end());
+    const std::size_t selected =
+      static_cast<std::size_t>(largest - squaredNorm.begin());
+    if (selected != pivot) {
+      std::swap(columns[pivot], columns[selected]);
+      std::swap(squaredNorm[pivot], squaredNorm[selected]);
+      std::swap(permutation[pivot], permutation[selected]);
+      for (std::size_t previous = 0; previous < pivot; ++previous) {
+        std::swap(
+          upperTriangular[previous][pivot],
+          upperTriangular[previous][selected]);
+      }
+    }
+
+    const double diagonal = std::sqrt(squaredNorm[pivot]);
+    if (!(diagonal > rankTolerance) || !std::isfinite(diagonal)) {
+      throw std::invalid_argument(
+        "FitCompactLinearPolynomial: neighbours are geometrically rank deficient");
+    }
+    upperTriangular[pivot][pivot] = diagonal;
+    for (double& entry : columns[pivot]) {
+      entry /= diagonal;
+    }
+    for (std::size_t column = pivot + 1; column < BasisSize; ++column) {
+      upperTriangular[pivot][column] = dot(columns[pivot], columns[column]);
+      for (std::size_t row = 0; row < neighbourIndices.size(); ++row) {
+        columns[column][row] -=
+          upperTriangular[pivot][column] * columns[pivot][row];
+      }
+      squaredNorm[column] = dot(columns[column], columns[column]);
+    }
+  }
+
+  // 5. Apply Q^T to all 14 right-hand sides at the same time.
+  std::array<std::array<double, FieldCount>, BasisSize> projected{};
+  for (std::size_t basis = 0; basis < BasisSize; ++basis) {
+    for (std::size_t row = 0; row < neighbourIndices.size(); ++row) {
+      const auto compactRow = gridData.cell(neighbourIndices[row]).row();
+      for (std::size_t field = 0; field < FieldCount; ++field) {
+        if (!std::isfinite(compactRow[field])) {
+          throw std::invalid_argument(
+            "FitCompactLinearPolynomial: compact values must be finite");
+        }
+        projected[basis][field] += columns[basis][row] * compactRow[field];
+      }
+    }
+  }
+
+  // 6. Solve R C = Q^T B and undo the QR column permutation.
+  std::array<std::array<double, FieldCount>, BasisSize> pivotedCoefficients{};
+  for (std::size_t reverse = BasisSize; reverse-- > 0;) {
+    for (std::size_t field = 0; field < FieldCount; ++field) {
+      double residual = projected[reverse][field];
+      for (std::size_t column = reverse + 1; column < BasisSize; ++column) {
+        residual -= upperTriangular[reverse][column]
+                  * pivotedCoefficients[column][field];
+      }
+      pivotedCoefficients[reverse][field] =
+        residual / upperTriangular[reverse][reverse];
+    }
+  }
+  std::array<std::array<double, FieldCount>, BasisSize> coefficients{};
+  for (std::size_t column = 0; column < BasisSize; ++column) {
+    coefficients[permutation[column]] = pivotedCoefficients[column];
+  }
+
+  // 7. Return row 0 as target values and rescale rows 1-3 into Cartesian gradients.
+  CompactLinearFit result{
+    .numberOfNeighbours = neighbourIndices.size(),
+    .polynomialDegree = 1,
+    .rank = BasisSize,
+    .lengthScale = lengthScale
+  };
+  for (std::size_t field = 0; field < FieldCount; ++field) {
+    result.values[field] = coefficients[0][field];
+    for (std::size_t direction = 0; direction < 3; ++direction) {
+      result.gradients[field][direction] =
+        coefficients[direction + 1][field] / lengthScale;
+    }
+  }
+  return result;
+}
+
 void InterpolateToSurfaceNearestNeighbour(
   const GridData& gridData,
   const AHGuess& ahGuess,
@@ -238,7 +399,7 @@ void InterpolateToSurfaceNearestNeighbour(
   for (const AHGuessPoint& guessPoint : ahGuess.points) {
     const GridCoordinate target = SurfacePointToCartesian(guessPoint, referencePoint);
     const std::size_t cellIndex = FindNearestGridCells(gridData, target, 1).front();
-    const CompactCCZ4CellView cell = gridData.cell(cellIndex);
+    const CompactCellView cell = gridData.cell(cellIndex);
 
     std::array<double, NumberOfSymmetricTensorComponents> gammaTildeComponents{};
     std::array<double, NumberOfSymmetricTensorComponents> ATildeComponents{};

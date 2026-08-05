@@ -134,7 +134,7 @@ void readWholeVtu(const std::string& inputFile,
 
   gridData.coordinates.clear();
   gridData.values.clear();
-  static_assert(GridData::numberOfVariables == NumberOfCompactCCZ4Fields);
+  static_assert(GridData::numberOfVariables == NumberOfCompactFields);
   gridData.coordinates.reserve(static_cast<std::size_t>(grid->GetNumberOfCells()));
   gridData.values.reserve(static_cast<std::size_t>(grid->GetNumberOfCells()) * selected.size());
 

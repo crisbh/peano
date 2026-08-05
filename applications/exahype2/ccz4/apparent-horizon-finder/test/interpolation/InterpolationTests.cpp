@@ -260,10 +260,82 @@ void testFitLinearPolynomialInvalidStencils() {
   );
 }
 
+void testFitCompactLinearPolynomial() {
+  const GridCoordinate target{0.7, -0.2, 1.3};
+  GridData gridData;
+  gridData.coordinates = {
+    {-2.1, 0.3, 1.7}, {0.2, -1.4, 0.1}, {3.0, 2.2, -0.8},
+    {-0.4, 1.1, -2.5}, {1.7, -0.6, 2.9}, {-3.2, -2.0, 0.4},
+    {0.9, 3.1, 1.2}, {2.5, 0.4, -3.3}
+  };
+  gridData.resize(gridData.coordinates.size());
+
+  std::array<double, NumberOfCompactFields> constants{};
+  std::array<Vector3, NumberOfCompactFields> derivatives{};
+  for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+    constants[field] = 100.0 + 7.0 * static_cast<double>(field);
+    derivatives[field] = {
+      1.0 + static_cast<double>(field),
+      -2.0 - 2.0 * static_cast<double>(field),
+      3.0 + 0.5 * static_cast<double>(field)
+    };
+  }
+  for (std::size_t cell = 0; cell < gridData.coordinates.size(); ++cell) {
+    const GridCoordinate& coordinate = gridData.coordinates[cell];
+    for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+      gridData.values[cell * GridData::numberOfVariables + field] =
+        constants[field] + derivatives[field][0] * coordinate.x
+        + derivatives[field][1] * coordinate.y
+        + derivatives[field][2] * coordinate.z;
+    }
+  }
+
+  const std::vector<std::size_t> neighbours{7, 0, 5, 2, 4, 1, 6, 3};
+  const CompactLinearFit fit =
+    FitCompactLinearPolynomial(gridData, neighbours, target);
+
+  assert(fit.numberOfNeighbours == neighbours.size());
+  assert(fit.polynomialDegree == 1);
+  assert(fit.rank == 4);
+  assert(fit.lengthScale > 0.0);
+  for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+    const double expectedValue =
+      constants[field] + derivatives[field][0] * target.x
+      + derivatives[field][1] * target.y
+      + derivatives[field][2] * target.z;
+    assert(approximatelyEqual(fit.values[field], expectedValue));
+    for (std::size_t direction = 0; direction < 3; ++direction) {
+      assert(approximatelyEqual(
+        fit.gradients[field][direction], derivatives[field][direction]));
+    }
+  }
+
+  // Named compact indices must still identify K, direct phi, and tensor order.
+  assert(approximatelyEqual(
+    fit.values[static_cast<std::size_t>(CompactField::TraceK)],
+    constants[12] + derivatives[12][0] * target.x
+      + derivatives[12][1] * target.y + derivatives[12][2] * target.z));
+  assert(approximatelyEqual(
+    fit.values[static_cast<std::size_t>(CompactField::Phi)],
+    constants[13] + derivatives[13][0] * target.x
+      + derivatives[13][1] * target.y + derivatives[13][2] * target.z));
+  for (std::size_t component = 0;
+       component < NumberOfSymmetricTensorComponents;
+       ++component) {
+    assert(ConformalMetricCompactFields[component]
+           == static_cast<CompactField>(component));
+    assert(ConformalExtrinsicCurvatureCompactFields[component]
+           == static_cast<CompactField>(component + 6));
+  }
+
+  std::cout << "One QR factorisation reconstructs all fourteen compact fields"
+            << std::endl;
+}
+
 void setCompactCell(
   GridData& gridData,
   std::size_t cellIndex,
-  const std::array<double, NumberOfCompactCCZ4Fields>& values
+  const std::array<double, NumberOfCompactFields>& values
 ) {
   std::copy(
     values.begin(),
@@ -373,6 +445,7 @@ int main() {
   testInvalidNearestGridCellInputs();
   testFitLinearPolynomialExactReproduction();
   testFitLinearPolynomialInvalidStencils();
+  testFitCompactLinearPolynomial();
   testInterpolateToSurfaceNearestNeighbour();
   testInterpolateFromCartesianToShell();
   testInterpolateFromShellToSurface();

@@ -55,6 +55,26 @@ LinearPolynomialFit FitLinearPolynomial(
   const GridCoordinate& target
 );
 
+struct CompactLinearFit {
+  std::array<double, NumberOfCompactFields> values{};
+  std::array<Vector3, NumberOfCompactFields> gradients{};
+  std::size_t numberOfNeighbours = 0;
+  std::size_t polynomialDegree = 1;
+  std::size_t rank = 0;
+  double lengthScale = 0.0;
+};
+
+/**
+ * Reconstruct all fourteen compact fields with one shared degree-1 design
+ * matrix and one column-pivoted QR factorisation. Result fields retain compact
+ * order, including K at 12 and direct phi at 13.
+ */
+CompactLinearFit FitCompactLinearPolynomial(
+  const GridData& gridData,
+  std::span<const std::size_t> neighbourIndices,
+  const GridCoordinate& target
+);
+
 /**
  * Sample each AH surface point from its nearest Cartesian cell centre and
  * reconstruct the physical spatial metric and extrinsic curvature.

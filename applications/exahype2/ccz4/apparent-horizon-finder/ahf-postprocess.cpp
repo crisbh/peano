@@ -14,7 +14,7 @@ void PrintUsage(const char* executable) {
   std::cerr
       << "Usage: " << executable << " --input <snapshot.vtu|snapshot.pvtu> --output <horizon.vtp>\n"
       << "\n"
-      << "Reads a VTK snapshot produced from CCZ4 output and runs the offline\n"
+      << "Reads a VTK snapshot produced from output and runs the offline\n"
       << "apparent-horizon finder pipeline. The current AHF implementation still\n"
       << "contains placeholder numerical kernels, so this frontend wires the\n"
       << "postprocessing entry point without changing the solver algorithms.\n";

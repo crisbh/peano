@@ -110,13 +110,13 @@ void testCompactCellAccessor() {
   }
 
   const GridData& constGridData = gridData;
-  const CompactCCZ4CellView first = constGridData.cell(0);
-  const CompactCCZ4CellView second = constGridData.cell(1);
+  const CompactCellView first = constGridData.cell(0);
+  const CompactCellView second = constGridData.cell(1);
 
   // The view aliases GridData storage instead of copying the fourteen values.
   assert(first.row().data() == gridData.values.data());
   assert(second.row().data() == gridData.values.data() + GridData::numberOfVariables);
-  assert(first.row().size() == NumberOfCompactCCZ4Fields);
+  assert(first.row().size() == NumberOfCompactFields);
 
   for (std::size_t component = 0; component < NumberOfSymmetricTensorComponents; ++component) {
     assert(first.conformalMetricComponent(component) == 100.0 + component);

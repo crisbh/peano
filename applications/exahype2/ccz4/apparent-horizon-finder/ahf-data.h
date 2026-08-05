@@ -58,7 +58,7 @@ struct GridCoordinate {
 };
 
 /**
- * Fixed column layout of every compact CCZ4 row stored in GridData.
+ * Fixed column layout of every compact row stored in GridData.
  *
  * This enum is the only field-index contract used after file input. Its values
  * are independent of the component numbers in a source VTU tuple.
@@ -81,10 +81,10 @@ enum class CompactField : std::size_t {
   Count = 14
 };
 
-inline constexpr std::size_t NumberOfCompactCCZ4Fields =
+inline constexpr std::size_t NumberOfCompactFields =
   static_cast<std::size_t>(CompactField::Count);
 
-inline constexpr std::array<const char*, NumberOfCompactCCZ4Fields> CompactFieldNames{
+inline constexpr std::array<const char*, NumberOfCompactFields> CompactFieldNames{
   "gammaTilde_xx", "gammaTilde_xy", "gammaTilde_xz",
   "gammaTilde_yy", "gammaTilde_yz", "gammaTilde_zz",
   "ATilde_xx", "ATilde_xy", "ATilde_xz",
@@ -92,7 +92,7 @@ inline constexpr std::array<const char*, NumberOfCompactCCZ4Fields> CompactField
   "K", "phi"
 };
 
-/** Symmetric-tensor component order used by both compact CCZ4 tensors. */
+/** Symmetric-tensor component order used by both compact tensors. */
 enum class SymmetricTensorComponent : std::size_t {
   XX = 0,
   XY = 1,
@@ -120,7 +120,7 @@ ConformalExtrinsicCurvatureCompactFields{
 };
 
 /**
- * Reader-side mapping from compact CCZ4 fields to components of a source tuple.
+ * Reader-side mapping from compact fields to components of a source tuple.
  * Source indices are used only while constructing a compact GridData row.
  */
 struct SourceVariableMapping {
@@ -136,7 +136,7 @@ struct SourceVariableMapping {
   Index traceK = NotStored;
   Index conformalFactor = NotStored;
 
-  std::array<Index, NumberOfCompactCCZ4Fields> componentsInCompactOrder() const {
+  std::array<Index, NumberOfCompactFields> componentsInCompactOrder() const {
     return {
       conformalMetric[0], conformalMetric[1], conformalMetric[2],
       conformalMetric[3], conformalMetric[4], conformalMetric[5],
@@ -212,7 +212,7 @@ struct SourceVariableMapping {
  * tensors use xx, xy, xz, yy, yz, zz order; K and direct phi occupy columns 12
  * and 13 respectively.
  */
-inline std::array<double, NumberOfCompactCCZ4Fields> CompactCCZ4SourceTuple(
+inline std::array<double, NumberOfCompactFields> CompactSourceTuple(
   std::span<const double> sourceTuple,
   const SourceVariableMapping& sourceMapping
 ) {
@@ -220,7 +220,7 @@ inline std::array<double, NumberOfCompactCCZ4Fields> CompactCCZ4SourceTuple(
 
   const auto sourceComponents = sourceMapping.componentsInCompactOrder();
 
-  std::array<double, NumberOfCompactCCZ4Fields> compact{};
+  std::array<double, NumberOfCompactFields> compact{};
   for (std::size_t column = 0; column < compact.size(); ++column) {
     compact[column] = sourceTuple[sourceComponents[column]];
   }
@@ -228,15 +228,15 @@ inline std::array<double, NumberOfCompactCCZ4Fields> CompactCCZ4SourceTuple(
 }
 
 /**
- * Read-only, zero-copy view of one fixed-layout compact CCZ4 cell row.
+ * Read-only, zero-copy view of one fixed-layout compact cell row.
  */
-class CompactCCZ4CellView {
+class CompactCellView {
 public:
-  explicit CompactCCZ4CellView(
-    std::span<const double, NumberOfCompactCCZ4Fields> values
+  explicit CompactCellView(
+    std::span<const double, NumberOfCompactFields> values
   ): _values(values) {}
 
-  std::span<const double, NumberOfCompactCCZ4Fields> row() const {
+  std::span<const double, NumberOfCompactFields> row() const {
     return _values;
   }
 
@@ -280,14 +280,14 @@ private:
   ) const {
     if (component >= fields.size()) {
       throw std::out_of_range(
-        "CompactCCZ4CellView: " + std::string(tensorName)
+        "CompactCellView: " + std::string(tensorName)
         + " component index " + std::to_string(component)
         + " is outside xx, xy, xz, yy, yz, zz");
     }
     return compactValue(fields[component]);
   }
 
-  std::span<const double, NumberOfCompactCCZ4Fields> _values;
+  std::span<const double, NumberOfCompactFields> _values;
 };
 
 /**
@@ -300,7 +300,7 @@ struct GridData {
   std::vector<GridCoordinate> coordinates;
   std::vector<double> values;
 
-  static constexpr std::size_t numberOfVariables = NumberOfCompactCCZ4Fields;
+  static constexpr std::size_t numberOfVariables = NumberOfCompactFields;
 
   std::size_t numberOfPoints() const {
     return coordinates.size();
@@ -315,7 +315,7 @@ struct GridData {
     return values.size() == coordinates.size() * numberOfVariables;
   }
 
-  CompactCCZ4CellView cell(std::size_t cellIndex) const {
+  CompactCellView cell(std::size_t cellIndex) const {
     if (!isConsistent()) {
       throw std::logic_error(
         "GridData::cell: malformed compact data; expected "
@@ -329,8 +329,8 @@ struct GridData {
         + " is outside " + std::to_string(coordinates.size()) + " cells");
     }
 
-    return CompactCCZ4CellView(
-      std::span<const double, NumberOfCompactCCZ4Fields>(
+    return CompactCellView(
+      std::span<const double, NumberOfCompactFields>(
         values.data() + cellIndex * numberOfVariables,
         numberOfVariables
       )
@@ -403,21 +403,21 @@ inline Tensor3 UnpackSymmetricTensor(
   }};
 }
 
-/** Active CCZ4 kernels use 1e-2 as the safe lower bound for direct phi. */
+/** Active kernels use 1e-2 as the safe lower bound for direct phi. */
 inline constexpr double MinimumPhysicalPhi = 1.0e-2;
 
 inline void ValidatePhysicalPhi(double phi) {
   if (!std::isfinite(phi)) {
     throw std::invalid_argument(
-      "CCZ4 geometry conversion: direct phi must be finite");
+      "Geometry conversion: direct phi must be finite");
   }
   if (phi <= 0.0) {
     throw std::invalid_argument(
-      "CCZ4 geometry conversion: direct phi must be strictly positive");
+      "Geometry conversion: direct phi must be strictly positive");
   }
   if (phi < MinimumPhysicalPhi) {
     throw std::invalid_argument(
-      "CCZ4 geometry conversion: direct phi is below the safe division threshold 1e-2");
+      "Geometry conversion: direct phi is below the safe division threshold 1e-2");
   }
 }
 

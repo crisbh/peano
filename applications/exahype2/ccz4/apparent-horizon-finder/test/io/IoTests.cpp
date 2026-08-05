@@ -37,13 +37,13 @@ SourceVariableMapping completeSourceMapping() {
 }
 
 /**
- * Read the CCZ4 sample through ReadGridFromFile() and assert it loaded
+ * Read the sample through ReadGridFromFile() and assert it loaded
  * correctly. The same data and ground truth hold whether it is read from the
  * single-piece .vtu or the repartitioned .pvtu series, so this checker is shared
  * between both modes.
  */
 void checkSampleGrid(const std::string& inputFile) {
-  // The CCZ4 sample stores 64 cell components; this is the sample's actual
+  // The sample stores 64 cell components; this is the sample's actual
   // mapping. It selects 14 of them, which become GridData's compact columns:
   // conformal metric 0-5 -> columns 0-5, conformal extrinsic curvature 6-11 ->
   // columns 6-11, traceK (source 53) -> column 12, conformal factor (source 54)
@@ -129,7 +129,7 @@ void checkSampleGrid(const std::string& inputFile) {
             << " variables each from " << inputFile << std::endl;
 }
 
-void testCompactCCZ4SourceTuple() {
+void testCompactSourceTuple() {
   static_assert(static_cast<std::size_t>(CompactField::GammaTildeXX) == 0);
   static_assert(static_cast<std::size_t>(CompactField::GammaTildeXY) == 1);
   static_assert(static_cast<std::size_t>(CompactField::GammaTildeXZ) == 2);
@@ -156,10 +156,10 @@ void testCompactCCZ4SourceTuple() {
     sourceTuple[source] = 1000.0 + 17.0 * static_cast<double>(source);
   }
 
-  const auto compact = CompactCCZ4SourceTuple(sourceTuple, sourceMapping);
-  static_assert(compact.size() == NumberOfCompactCCZ4Fields);
+  const auto compact = CompactSourceTuple(sourceTuple, sourceMapping);
+  static_assert(compact.size() == NumberOfCompactFields);
 
-  const std::array<std::size_t, NumberOfCompactCCZ4Fields> expectedSources{
+  const std::array<std::size_t, NumberOfCompactFields> expectedSources{
     17, 3, 42, 8, 31, 1,
     58, 27, 14, 49, 6, 35,
     53, 54
@@ -172,7 +172,7 @@ void testCompactCCZ4SourceTuple() {
   assert(compact[static_cast<std::size_t>(CompactField::Phi)] == sourceTuple[54]);
   assert(GridData::numberOfVariables == 14);
 
-  std::cout << "Source tuple compaction preserves the fixed fourteen-column CCZ4 contract"
+  std::cout << "Source tuple compaction preserves the fixed fourteen-column contract"
             << std::endl;
 }
 
@@ -222,7 +222,7 @@ void testRequiredMappingFieldsAreRejectedBeforeFileOpen() {
   std::array<double, 54> shortSourceTuple{};
   bool unavailableFieldRejected = false;
   try {
-    (void)CompactCCZ4SourceTuple(shortSourceTuple, completeSourceMapping());
+    (void)CompactSourceTuple(shortSourceTuple, completeSourceMapping());
   } catch (const std::invalid_argument& error) {
     unavailableFieldRejected = true;
     assert(std::string(error.what()).find("phi selects source component 54")
@@ -277,7 +277,7 @@ int main() {
 
   std::cout << "Apparent Horizon Finder I/O tests begin..." << std::endl;
 
-  testCompactCCZ4SourceTuple();
+  testCompactSourceTuple();
   testRequiredMappingFieldsAreRejectedBeforeFileOpen();
   testReadGridFromFile();
   testReadGridFromPeano();
