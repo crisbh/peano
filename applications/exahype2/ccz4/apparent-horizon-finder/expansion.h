@@ -11,6 +11,8 @@ namespace exahype2::ccz4::ahf {
  * Local assembly of the outgoing null expansion Theta at one surface point.
  * This should vanish for an apparent horizon.
  *
+ * This will be invoked by the AssembleGlobalMatrix kernel
+ *
  * This kernel is discretisation-agnostic: given the (non-unit)
  * surface normal s_i and its gradient partial_i s_j,
  * together with the local ADM geometry, it returns
