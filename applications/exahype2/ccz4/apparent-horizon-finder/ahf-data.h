@@ -387,6 +387,7 @@ private:
 
 using Vector3 = std::array<double, 3>;
 using Tensor3 = std::array<std::array<double, 3>, 3>;
+using Tensor3Derivative = std::array<Tensor3, 3>;  // [k][i][j] = partial_k tensor_ij
 
 /**
  * Expand symmetric components ordered xx, xy, xz, yy, yz, zz into a 3x3
@@ -402,6 +403,88 @@ inline Tensor3 UnpackSymmetricTensor(
   }};
 }
 
+/** Active CCZ4 kernels use 1e-2 as the safe lower bound for direct phi. */
+inline constexpr double MinimumPhysicalPhi = 1.0e-2;
+
+inline void ValidatePhysicalPhi(double phi) {
+  if (!std::isfinite(phi)) {
+    throw std::invalid_argument(
+      "CCZ4 geometry conversion: direct phi must be finite");
+  }
+  if (phi <= 0.0) {
+    throw std::invalid_argument(
+      "CCZ4 geometry conversion: direct phi must be strictly positive");
+  }
+  if (phi < MinimumPhysicalPhi) {
+    throw std::invalid_argument(
+      "CCZ4 geometry conversion: direct phi is below the safe division threshold 1e-2");
+  }
+}
+
+/** Compute gamma_ij = gammaTilde_ij / phi^2 for direct (not logarithmic) phi. */
+inline Tensor3 ComputePhysicalSpatialMetric(const Tensor3& gammaTilde, double phi) {
+  ValidatePhysicalPhi(phi);
+  const double inversePhiSquared = 1.0 / (phi * phi);
+
+  Tensor3 gamma{};
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      gamma[i][j] = gammaTilde[i][j] * inversePhiSquared;
+    }
+  }
+  return gamma;
+}
+
+/**
+ * Compute K_ij = (ATilde_ij + K gammaTilde_ij / 3) / phi^2 using direct phi.
+ */
+inline Tensor3 ComputePhysicalExtrinsicCurvature(
+  const Tensor3& ATilde,
+  double traceK,
+  const Tensor3& gammaTilde,
+  double phi
+) {
+  ValidatePhysicalPhi(phi);
+  const double inversePhiSquared = 1.0 / (phi * phi);
+
+  Tensor3 extrinsicCurvature{};
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      extrinsicCurvature[i][j] =
+        (ATilde[i][j] + traceK * gammaTilde[i][j] / 3.0) * inversePhiSquared;
+    }
+  }
+  return extrinsicCurvature;
+}
+
+/**
+ * Compute Cartesian physical-metric derivatives in [k][i][j] order:
+ * partial_k gamma_ij = partial_k gammaTilde_ij / phi^2
+ *                    - 2 gammaTilde_ij partial_k phi / phi^3.
+ */
+inline Tensor3Derivative ComputePhysicalSpatialMetricDerivative(
+  const Tensor3& gammaTilde,
+  const Tensor3Derivative& gammaTildeDerivative,
+  double phi,
+  const Vector3& phiDerivative
+) {
+  ValidatePhysicalPhi(phi);
+  const double inversePhiSquared = 1.0 / (phi * phi);
+  const double inversePhiCubed = inversePhiSquared / phi;
+
+  Tensor3Derivative gammaDerivative{};
+  for (std::size_t k = 0; k < 3; ++k) {
+    for (std::size_t i = 0; i < 3; ++i) {
+      for (std::size_t j = 0; j < 3; ++j) {
+        gammaDerivative[k][i][j] =
+          gammaTildeDerivative[k][i][j] * inversePhiSquared
+          - 2.0 * gammaTilde[i][j] * phiDerivative[k] * inversePhiCubed;
+      }
+    }
+  }
+  return gammaDerivative;
+}
+
 /**
  * Physical and geometrical quantities shared by shell and surface samples.
  *
@@ -413,7 +496,7 @@ struct InterpolatedGeometryData {
   std::array<Vector3, 2> coordinateGradient{};  // X^u_i
   std::array<Tensor3, 2> coordinateHessian{};   // X^u_ij
   Tensor3 spatialMetric{};                     // gamma_ij
-  std::array<Tensor3, 3> spatialMetricDerivative{};  // partial_i gamma_jk
+  Tensor3Derivative spatialMetricDerivative{};  // [k][i][j] = partial_k gamma_ij
   Tensor3 extrinsicCurvature{};                // K_ij
   double traceK = 0.0;
 };

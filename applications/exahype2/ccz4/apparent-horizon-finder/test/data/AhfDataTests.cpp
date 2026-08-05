@@ -205,6 +205,125 @@ void testUnpackSymmetricTensor() {
             << std::endl;
 }
 
+void testPhysicalSpatialMetricConversion() {
+  const Tensor3 identity{{
+    {{1.0, 0.0, 0.0}},
+    {{0.0, 1.0, 0.0}},
+    {{0.0, 0.0, 1.0}}
+  }};
+  assert(ComputePhysicalSpatialMetric(identity, 1.0) == identity);
+
+  const Tensor3 gammaTilde = UnpackSymmetricTensor(
+    std::array<double, 6>{4.0, 2.0, 6.0, 8.0, 10.0, 12.0}
+  );
+  const Tensor3 expected{{
+    {{1.0, 0.5, 1.5}},
+    {{0.5, 2.0, 2.5}},
+    {{1.5, 2.5, 3.0}}
+  }};
+  const Tensor3 gamma = ComputePhysicalSpatialMetric(gammaTilde, 2.0);
+  assert(gamma == expected);
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      assert(gamma[i][j] == gamma[j][i]);
+    }
+  }
+
+  // Direct phi=2 gives gamma_xx=4/2^2=1; exp(phi) would not.
+  assert(gamma[0][0] == 1.0);
+}
+
+void testPhysicalExtrinsicCurvatureConversion() {
+  const Tensor3 identity{{
+    {{1.0, 0.0, 0.0}},
+    {{0.0, 1.0, 0.0}},
+    {{0.0, 0.0, 1.0}}
+  }};
+  const Tensor3 zero{};
+  const Tensor3 expectedPureTrace{{
+    {{2.0, 0.0, 0.0}},
+    {{0.0, 2.0, 0.0}},
+    {{0.0, 0.0, 2.0}}
+  }};
+  assert(ComputePhysicalExtrinsicCurvature(zero, 6.0, identity, 1.0)
+         == expectedPureTrace);
+
+  const Tensor3 gammaTilde = UnpackSymmetricTensor(
+    std::array<double, 6>{4.0, 2.0, 6.0, 8.0, 10.0, 12.0}
+  );
+  const Tensor3 ATilde = UnpackSymmetricTensor(
+    std::array<double, 6>{1.0, 2.0, 3.0, 4.0, 5.0, 6.0}
+  );
+  const Tensor3 expected{{
+    {{1.25, 1.0, 2.25}},
+    {{1.0, 3.0, 3.75}},
+    {{2.25, 3.75, 4.5}}
+  }};
+  const Tensor3 curvature =
+    ComputePhysicalExtrinsicCurvature(ATilde, 3.0, gammaTilde, 2.0);
+  assert(curvature == expected);
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      assert(curvature[i][j] == curvature[j][i]);
+    }
+  }
+}
+
+void testPhysicalSpatialMetricDerivativeConversion() {
+  const Tensor3 gammaTilde = UnpackSymmetricTensor(
+    std::array<double, 6>{4.0, 2.0, 6.0, 8.0, 10.0, 12.0}
+  );
+  const Tensor3Derivative gammaTildeDerivative{{
+    UnpackSymmetricTensor(std::array<double, 6>{10.0, 11.0, 12.0, 13.0, 14.0, 15.0}),
+    UnpackSymmetricTensor(std::array<double, 6>{20.0, 21.0, 22.0, 23.0, 24.0, 25.0}),
+    UnpackSymmetricTensor(std::array<double, 6>{30.0, 31.0, 32.0, 33.0, 34.0, 35.0})
+  }};
+  const Vector3 phiDerivative{1.0, 2.0, 3.0};
+
+  const Tensor3Derivative expected{{
+    Tensor3{{{{1.5, 2.25, 1.5}}, {{2.25, 1.25, 1.0}}, {{1.5, 1.0, 0.75}}}},
+    Tensor3{{{{3.0, 4.25, 2.5}}, {{4.25, 1.75, 1.0}}, {{2.5, 1.0, 0.25}}}},
+    Tensor3{{{{4.5, 6.25, 3.5}}, {{6.25, 2.25, 1.0}}, {{3.5, 1.0, -0.25}}}}
+  }};
+
+  const Tensor3Derivative derivative = ComputePhysicalSpatialMetricDerivative(
+    gammaTilde,
+    gammaTildeDerivative,
+    2.0,
+    phiDerivative
+  );
+  assert(derivative == expected);
+  for (std::size_t k = 0; k < 3; ++k) {
+    for (std::size_t i = 0; i < 3; ++i) {
+      for (std::size_t j = 0; j < 3; ++j) {
+        assert(derivative[k][i][j] == derivative[k][j][i]);
+      }
+    }
+  }
+}
+
+void testInvalidPhysicalPhiRejected() {
+  const Tensor3 tensor{};
+  const std::array<double, 5> invalidPhi{
+    0.0,
+    -1.0,
+    std::numeric_limits<double>::quiet_NaN(),
+    std::numeric_limits<double>::infinity(),
+    MinimumPhysicalPhi / 2.0
+  };
+
+  for (double phi : invalidPhi) {
+    bool rejected = false;
+    try {
+      (void)ComputePhysicalSpatialMetric(tensor, phi);
+    } catch (const std::invalid_argument& error) {
+      rejected = true;
+      assert(std::string(error.what()).find("direct phi") != std::string::npos);
+    }
+    assert(rejected);
+  }
+}
+
 void testSourceVariableMappingStruct() {
   const SourceVariableMapping mapping{
     .conformalMetric = {0, 1, 2, 3, 4, 5},
@@ -347,6 +466,10 @@ int main() {
   testGridDataStruct();
   testCompactCellAccessor();
   testUnpackSymmetricTensor();
+  testPhysicalSpatialMetricConversion();
+  testPhysicalExtrinsicCurvatureConversion();
+  testPhysicalSpatialMetricDerivativeConversion();
+  testInvalidPhysicalPhiRejected();
   testSourceVariableMappingStruct();
   testInterpolatedShellStruct();
   testInterpolatedSurfaceStruct();
