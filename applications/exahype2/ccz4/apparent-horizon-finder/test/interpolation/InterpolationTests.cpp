@@ -166,6 +166,100 @@ void testInvalidNearestGridCellInputs() {
   expectNeighbourSearchRejected(twoCells, {0.0, 0.0, -infinity}, 1, "must be finite");
 }
 
+std::vector<double> evaluateLinearField(
+  const std::vector<GridCoordinate>& coordinates,
+  double constant,
+  const Vector3& derivative
+) {
+  std::vector<double> values;
+  values.reserve(coordinates.size());
+  for (const GridCoordinate& coordinate : coordinates) {
+    values.push_back(
+      constant + derivative[0] * coordinate.x
+      + derivative[1] * coordinate.y + derivative[2] * coordinate.z
+    );
+  }
+  return values;
+}
+
+void assertLinearFit(
+  const std::vector<GridCoordinate>& coordinates,
+  double constant,
+  const Vector3& derivative,
+  const GridCoordinate& target
+) {
+  const std::vector<double> values =
+    evaluateLinearField(coordinates, constant, derivative);
+  const LinearPolynomialFit fit = FitLinearPolynomial(coordinates, values, target);
+  const double expectedValue =
+    constant + derivative[0] * target.x
+    + derivative[1] * target.y + derivative[2] * target.z;
+  assert(approximatelyEqual(fit.value, expectedValue));
+  for (std::size_t direction = 0; direction < 3; ++direction) {
+    assert(approximatelyEqual(fit.derivative[direction], derivative[direction]));
+  }
+  assert(std::isfinite(fit.lengthScale));
+  assert(fit.lengthScale > 0.0);
+}
+
+void testFitLinearPolynomialExactReproduction() {
+  const std::vector<GridCoordinate> regular{
+    {-1.0, -1.0, -1.0}, {1.0, -1.0, -1.0},
+    {-1.0, 1.0, -1.0}, {-1.0, -1.0, 1.0},
+    {1.0, 1.0, 1.0}, {2.0, -0.5, 0.75}
+  };
+  const GridCoordinate origin{0.0, 0.0, 0.0};
+
+  assertLinearFit(regular, 7.0, {0.0, 0.0, 0.0}, origin);
+  assertLinearFit(regular, 2.0, {3.0, -4.0, 5.0}, origin);
+  assertLinearFit(regular, -1.0, {6.0, 0.0, 0.0}, origin);
+  assertLinearFit(regular, -1.0, {0.0, 6.0, 0.0}, origin);
+  assertLinearFit(regular, -1.0, {0.0, 0.0, 6.0}, origin);
+  assertLinearFit(regular, 2.0, {3.0, -4.0, 5.0}, {4.0, -3.0, 2.0});
+
+  const std::vector<GridCoordinate> irregular{
+    {-2.1, 0.3, 1.7}, {0.2, -1.4, 0.1}, {3.0, 2.2, -0.8},
+    {-0.4, 1.1, -2.5}, {1.7, -0.6, 2.9}, {-3.2, -2.0, 0.4},
+    {0.9, 3.1, 1.2}, {2.5, 0.4, -3.3}
+  };
+  assertLinearFit(irregular, 2.0, {3.0, -4.0, 5.0}, {0.7, -0.2, 1.3});
+
+  std::cout << "Degree-1 QR reconstruction exactly reproduces analytic linear fields"
+            << std::endl;
+}
+
+void expectLinearFitRejected(
+  const std::vector<GridCoordinate>& coordinates,
+  const std::vector<double>& values,
+  const std::string& expectedMessage
+) {
+  bool rejected = false;
+  try {
+    (void)FitLinearPolynomial(coordinates, values, {0.0, 0.0, 0.0});
+  } catch (const std::invalid_argument& error) {
+    rejected = true;
+    assert(std::string(error.what()).find(expectedMessage) != std::string::npos);
+  }
+  assert(rejected);
+}
+
+void testFitLinearPolynomialInvalidStencils() {
+  const std::vector<GridCoordinate> tooFew{
+    {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}
+  };
+  expectLinearFitRejected(tooFew, {1.0, 2.0, 3.0}, "at least four");
+
+  const std::vector<GridCoordinate> coplanar{
+    {-1.0, -1.0, 0.0}, {1.0, -1.0, 0.0},
+    {-1.0, 1.0, 0.0}, {1.0, 1.0, 0.0}, {0.25, -0.5, 0.0}
+  };
+  expectLinearFitRejected(
+    coplanar,
+    evaluateLinearField(coplanar, 2.0, {3.0, -4.0, 5.0}),
+    "rank deficient"
+  );
+}
+
 void setCompactCell(
   GridData& gridData,
   std::size_t cellIndex,
@@ -277,6 +371,8 @@ int main() {
   testInvalidSurfacePointToCartesianInputs();
   testFindNearestGridCells();
   testInvalidNearestGridCellInputs();
+  testFitLinearPolynomialExactReproduction();
+  testFitLinearPolynomialInvalidStencils();
   testInterpolateToSurfaceNearestNeighbour();
   testInterpolateFromCartesianToShell();
   testInterpolateFromShellToSurface();

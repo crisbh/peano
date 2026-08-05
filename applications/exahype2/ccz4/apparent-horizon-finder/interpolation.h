@@ -34,6 +34,27 @@ std::vector<std::size_t> FindNearestGridCells(
   std::size_t neighbourCount
 );
 
+struct LinearPolynomialFit {
+  double value = 0.0;
+  Vector3 derivative{};
+  double lengthScale = 0.0;
+};
+
+/**
+ * Unweighted degree-1 scalar least-squares reconstruction using the basis
+ * [1,X,Y,Z] and a column-pivoted QR solve. The length scale ell is the maximum
+ * Euclidean distance of any sample from the target, which bounds every scaled
+ * sample radius by one and is insensitive to sample ordering.
+ *
+ * @throws std::invalid_argument for malformed/non-finite input, fewer than four
+ * samples, or a geometrically rank-deficient sample distribution.
+ */
+LinearPolynomialFit FitLinearPolynomial(
+  std::span<const GridCoordinate> sampleCoordinates,
+  std::span<const double> sampleValues,
+  const GridCoordinate& target
+);
+
 /**
  * Sample each AH surface point from its nearest Cartesian cell centre and
  * reconstruct the physical spatial metric and extrinsic curvature.
