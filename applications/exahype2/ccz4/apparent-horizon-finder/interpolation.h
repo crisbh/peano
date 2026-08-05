@@ -4,6 +4,7 @@
 #include "ahf-data.h"
 
 #include <span>
+#include <vector>
 
 namespace exahype2::ccz4::ahf {
 
@@ -16,6 +17,21 @@ namespace exahype2::ccz4::ahf {
 GridCoordinate SurfacePointToCartesian(
   const AHGuessPoint& surfacePoint,
   const ReferencePoint& referencePoint
+);
+
+/**
+ * Return the indices of the @p neighbourCount nearest Cartesian cell centres.
+ * Results are ordered by increasing squared Euclidean distance, with cell index
+ * as the deterministic tie-breaker. This brute-force baseline is deliberately
+ * isolated behind this API so its implementation can later use a spatial index.
+ *
+ * @throws std::invalid_argument for an empty grid, an invalid neighbour count,
+ * or a non-finite target coordinate.
+ */
+std::vector<std::size_t> FindNearestGridCells(
+  const GridData& gridData,
+  const GridCoordinate& target,
+  std::size_t neighbourCount
 );
 
 /**

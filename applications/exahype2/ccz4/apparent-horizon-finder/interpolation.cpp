@@ -1,5 +1,8 @@
 #include "interpolation.h"
 
+#include <algorithm>
+#include <numeric>
+
 namespace exahype2::ccz4::ahf {
 
 GridCoordinate SurfacePointToCartesian(
@@ -26,6 +29,59 @@ GridCoordinate SurfacePointToCartesian(
     referencePoint.y + surfacePoint.r * cosSigma * std::sin(surfacePoint.rho),
     referencePoint.z + surfacePoint.r * std::sin(surfacePoint.sigma)
   };
+}
+
+std::vector<std::size_t> FindNearestGridCells(
+  const GridData& gridData,
+  const GridCoordinate& target,
+  std::size_t neighbourCount
+) {
+  if (gridData.coordinates.empty()) {
+    throw std::invalid_argument(
+      "FindNearestGridCells: cannot search an empty Cartesian grid");
+  }
+  if (neighbourCount == 0) {
+    throw std::invalid_argument(
+      "FindNearestGridCells: neighbour count must be greater than zero");
+  }
+  if (neighbourCount > gridData.coordinates.size()) {
+    throw std::invalid_argument(
+      "FindNearestGridCells: requested " + std::to_string(neighbourCount)
+      + " neighbours from only " + std::to_string(gridData.coordinates.size())
+      + " cells");
+  }
+  if (!std::isfinite(target.x)
+      || !std::isfinite(target.y)
+      || !std::isfinite(target.z)) {
+    throw std::invalid_argument(
+      "FindNearestGridCells: target coordinate must be finite");
+  }
+
+  std::vector<std::size_t> indices(gridData.coordinates.size());
+  std::iota(indices.begin(), indices.end(), std::size_t{0});
+
+  const auto squaredDistance = [&gridData, &target](std::size_t cellIndex) {
+    const GridCoordinate& coordinate = gridData.coordinates[cellIndex];
+    const double dx = coordinate.x - target.x;
+    const double dy = coordinate.y - target.y;
+    const double dz = coordinate.z - target.z;
+    return dx * dx + dy * dy + dz * dz;
+  };
+  const auto nearer = [&squaredDistance](std::size_t first, std::size_t second) {
+    const double firstDistance = squaredDistance(first);
+    const double secondDistance = squaredDistance(second);
+    return firstDistance < secondDistance
+        || (firstDistance == secondDistance && first < second);
+  };
+
+  std::partial_sort(
+    indices.begin(),
+    indices.begin() + neighbourCount,
+    indices.end(),
+    nearer
+  );
+  indices.resize(neighbourCount);
+  return indices;
 }
 
 void InterpolateFromCartesianToShell(const GridData& gridData,
