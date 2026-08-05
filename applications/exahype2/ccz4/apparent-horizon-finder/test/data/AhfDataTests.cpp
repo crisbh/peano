@@ -304,6 +304,8 @@ void testPhysicalSpatialMetricDerivativeConversion() {
 
 void testInvalidPhysicalPhiRejected() {
   const Tensor3 tensor{};
+  const Tensor3Derivative tensorDerivative{};
+  const Vector3 phiDerivative{};
   const std::array<double, 5> invalidPhi{
     0.0,
     -1.0,
@@ -313,14 +315,25 @@ void testInvalidPhysicalPhiRejected() {
   };
 
   for (double phi : invalidPhi) {
-    bool rejected = false;
-    try {
-      (void)ComputePhysicalSpatialMetric(tensor, phi);
-    } catch (const std::invalid_argument& error) {
-      rejected = true;
-      assert(std::string(error.what()).find("direct phi") != std::string::npos);
-    }
-    assert(rejected);
+    const auto expectRejected = [](const auto& conversion) {
+      bool rejected = false;
+      try {
+        conversion();
+      } catch (const std::invalid_argument& error) {
+        rejected = true;
+        assert(std::string(error.what()).find("direct phi") != std::string::npos);
+      }
+      assert(rejected);
+    };
+
+    expectRejected([&] { (void)ComputePhysicalSpatialMetric(tensor, phi); });
+    expectRejected([&] {
+      (void)ComputePhysicalExtrinsicCurvature(tensor, 0.0, tensor, phi);
+    });
+    expectRejected([&] {
+      (void)ComputePhysicalSpatialMetricDerivative(
+        tensor, tensorDerivative, phi, phiDerivative);
+    });
   }
 }
 

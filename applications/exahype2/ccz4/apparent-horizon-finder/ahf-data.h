@@ -428,8 +428,9 @@ inline Tensor3 ComputePhysicalSpatialMetric(const Tensor3& gammaTilde, double ph
 
   Tensor3 gamma{};
   for (std::size_t i = 0; i < 3; ++i) {
-    for (std::size_t j = 0; j < 3; ++j) {
+    for (std::size_t j = i; j < 3; ++j) {
       gamma[i][j] = gammaTilde[i][j] * inversePhiSquared;
+      gamma[j][i] = gamma[i][j];
     }
   }
   return gamma;
@@ -449,9 +450,10 @@ inline Tensor3 ComputePhysicalExtrinsicCurvature(
 
   Tensor3 extrinsicCurvature{};
   for (std::size_t i = 0; i < 3; ++i) {
-    for (std::size_t j = 0; j < 3; ++j) {
+    for (std::size_t j = i; j < 3; ++j) {
       extrinsicCurvature[i][j] =
         (ATilde[i][j] + traceK * gammaTilde[i][j] / 3.0) * inversePhiSquared;
+      extrinsicCurvature[j][i] = extrinsicCurvature[i][j];
     }
   }
   return extrinsicCurvature;
@@ -475,10 +477,11 @@ inline Tensor3Derivative ComputePhysicalSpatialMetricDerivative(
   Tensor3Derivative gammaDerivative{};
   for (std::size_t k = 0; k < 3; ++k) {
     for (std::size_t i = 0; i < 3; ++i) {
-      for (std::size_t j = 0; j < 3; ++j) {
+      for (std::size_t j = i; j < 3; ++j) {
         gammaDerivative[k][i][j] =
           gammaTildeDerivative[k][i][j] * inversePhiSquared
           - 2.0 * gammaTilde[i][j] * phiDerivative[k] * inversePhiCubed;
+        gammaDerivative[k][j][i] = gammaDerivative[k][i][j];
       }
     }
   }
