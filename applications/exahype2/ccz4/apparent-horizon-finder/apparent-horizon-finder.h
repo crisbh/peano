@@ -8,6 +8,8 @@
 #include "peano-input.h"
 #include "output.h"
 #include "interpolation.h"
+#include "tensor-algebra.h"
+#include "expansion.h"
 #include "assemble-matrix.h"
 #include "iteration.h"
 

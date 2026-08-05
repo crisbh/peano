@@ -12,6 +12,7 @@ endif()
 set(AHF_CORE_SOURCES
   output.cpp
   interpolation.cpp
+  expansion.cpp
   assemble-matrix.cpp
   iteration.cpp
 )
@@ -22,6 +23,8 @@ set(AHF_CORE_HEADERS
   peano-input.h
   output.h
   interpolation.h
+  tensor-algebra.h
+  expansion.h
   assemble-matrix.h
   iteration.h
 )
