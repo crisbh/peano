@@ -182,6 +182,29 @@ void testCompactCellAccessor() {
             << std::endl;
 }
 
+void testUnpackSymmetricTensor() {
+  const std::array<double, NumberOfSymmetricTensorComponents> compact{
+    1.0, 2.0, 3.0, 4.0, 5.0, 6.0
+  };
+
+  const Tensor3 tensor = UnpackSymmetricTensor(compact);
+  const Tensor3 expected{{
+    {{1.0, 2.0, 3.0}},
+    {{2.0, 4.0, 5.0}},
+    {{3.0, 5.0, 6.0}}
+  }};
+
+  assert(tensor == expected);
+  for (std::size_t row = 0; row < 3; ++row) {
+    for (std::size_t column = 0; column < 3; ++column) {
+      assert(tensor[row][column] == tensor[column][row]);
+    }
+  }
+
+  std::cout << "Symmetric tensor unpacking preserves component order and symmetry"
+            << std::endl;
+}
+
 void testSourceVariableMappingStruct() {
   const SourceVariableMapping mapping{
     .conformalMetric = {0, 1, 2, 3, 4, 5},
@@ -323,6 +346,7 @@ int main() {
   testAngularSampleStruct();
   testGridDataStruct();
   testCompactCellAccessor();
+  testUnpackSymmetricTensor();
   testSourceVariableMappingStruct();
   testInterpolatedShellStruct();
   testInterpolatedSurfaceStruct();

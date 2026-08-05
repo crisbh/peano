@@ -389,6 +389,20 @@ using Vector3 = std::array<double, 3>;
 using Tensor3 = std::array<std::array<double, 3>, 3>;
 
 /**
+ * Expand symmetric components ordered xx, xy, xz, yy, yz, zz into a 3x3
+ * tensor. Off-diagonal entries are assigned explicitly to preserve symmetry.
+ */
+inline Tensor3 UnpackSymmetricTensor(
+  std::span<const double, NumberOfSymmetricTensorComponents> components
+) {
+  return Tensor3{{
+    {{components[0], components[1], components[2]}},
+    {{components[1], components[3], components[4]}},
+    {{components[2], components[4], components[5]}}
+  }};
+}
+
+/**
  * Physical and geometrical quantities shared by shell and surface samples.
  *
  * The first index of coordinateGradient and coordinateHessian selects the
