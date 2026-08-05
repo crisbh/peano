@@ -2,6 +2,32 @@
 
 namespace exahype2::ccz4::ahf {
 
+GridCoordinate SurfacePointToCartesian(
+  const AHGuessPoint& surfacePoint,
+  const ReferencePoint& referencePoint
+) {
+  if (!std::isfinite(surfacePoint.r)
+      || !std::isfinite(surfacePoint.rho)
+      || !std::isfinite(surfacePoint.sigma)
+      || !std::isfinite(referencePoint.x)
+      || !std::isfinite(referencePoint.y)
+      || !std::isfinite(referencePoint.z)) {
+    throw std::invalid_argument(
+      "SurfacePointToCartesian: radius, angles, and reference point must be finite");
+  }
+  if (surfacePoint.r <= 0.0) {
+    throw std::invalid_argument(
+      "SurfacePointToCartesian: apparent-horizon radius must be strictly positive");
+  }
+
+  const double cosSigma = std::cos(surfacePoint.sigma);
+  return GridCoordinate{
+    referencePoint.x + surfacePoint.r * cosSigma * std::cos(surfacePoint.rho),
+    referencePoint.y + surfacePoint.r * cosSigma * std::sin(surfacePoint.rho),
+    referencePoint.z + surfacePoint.r * std::sin(surfacePoint.sigma)
+  };
+}
+
 void InterpolateFromCartesianToShell(const GridData& gridData,
                                      const AHGuess& ahGuess,
                                      const ReferencePoint& referencePoint,

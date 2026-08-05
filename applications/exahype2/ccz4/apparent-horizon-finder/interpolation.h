@@ -8,6 +8,17 @@
 namespace exahype2::ccz4::ahf {
 
 /**
+ * Convert one AH point (r, longitude rho, latitude sigma) into its global
+ * Cartesian target coordinate relative to @p referencePoint.
+ *
+ * @throws std::invalid_argument for non-finite inputs or non-positive radius.
+ */
+GridCoordinate SurfacePointToCartesian(
+  const AHGuessPoint& surfacePoint,
+  const ReferencePoint& referencePoint
+);
+
+/**
  * Interpolate the Cartesian grid data to a shell-like subdomain around the current AH guess.
  */
 void InterpolateFromCartesianToShell(const GridData& gridData,
