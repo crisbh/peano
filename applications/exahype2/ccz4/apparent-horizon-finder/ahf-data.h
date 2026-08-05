@@ -8,6 +8,7 @@
 #include <limits>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace exahype2::ccz4::ahf {
@@ -83,6 +84,14 @@ enum class CompactField : std::size_t {
 inline constexpr std::size_t NumberOfCompactCCZ4Fields =
   static_cast<std::size_t>(CompactField::Count);
 
+inline constexpr std::array<const char*, NumberOfCompactCCZ4Fields> CompactFieldNames{
+  "gammaTilde_xx", "gammaTilde_xy", "gammaTilde_xz",
+  "gammaTilde_yy", "gammaTilde_yz", "gammaTilde_zz",
+  "ATilde_xx", "ATilde_xy", "ATilde_xz",
+  "ATilde_yy", "ATilde_yz", "ATilde_zz",
+  "K", "phi"
+};
+
 /**
  * Reader-side mapping from compact CCZ4 fields to components of a source tuple.
  * Source indices are used only while constructing a compact GridData row.
@@ -118,19 +127,56 @@ struct SourceVariableMapping {
     });
   }
 
+  void validateRequiredFields() const {
+    const auto components = componentsInCompactOrder();
+    for (std::size_t field = 0; field < components.size(); ++field) {
+      if (components[field] == NotStored) {
+        throw std::invalid_argument(
+          "SourceVariableMapping: required field "
+          + std::string(CompactFieldNames[field]) + " is NotStored");
+      }
+    }
+
+    for (std::size_t first = 0; first < components.size(); ++first) {
+      for (std::size_t second = first + 1; second < components.size(); ++second) {
+        if (components[first] == components[second]) {
+          throw std::invalid_argument(
+            "SourceVariableMapping: required fields "
+            + std::string(CompactFieldNames[first]) + " and "
+            + CompactFieldNames[second] + " both map to source component "
+            + std::to_string(components[first]));
+        }
+      }
+    }
+  }
+
+  void validateAgainstSourceTuple(std::size_t numberOfSourceComponents) const {
+    validateRequiredFields();
+    const auto components = componentsInCompactOrder();
+    for (std::size_t field = 0; field < components.size(); ++field) {
+      if (components[field] >= numberOfSourceComponents) {
+        throw std::invalid_argument(
+          "SourceVariableMapping: required field "
+          + std::string(CompactFieldNames[field]) + " selects source component "
+          + std::to_string(components[field]) + ", but the source tuple has only "
+          + std::to_string(numberOfSourceComponents) + " components");
+      }
+    }
+  }
+
   bool isValid(std::size_t numberOfSourceComponents) const {
-    for (Index index : conformalMetric) {
-      if (index >= numberOfSourceComponents) {
+    const auto components = componentsInCompactOrder();
+    for (std::size_t field = 0; field < components.size(); ++field) {
+      if (components[field] >= numberOfSourceComponents) {
         return false;
       }
-    }
-    for (Index index : conformalExtrinsicCurvature) {
-      if (index >= numberOfSourceComponents) {
-        return false;
+      for (std::size_t previous = 0; previous < field; ++previous) {
+        if (components[field] == components[previous]) {
+          return false;
+        }
       }
     }
-    return traceK < numberOfSourceComponents
-        && conformalFactor < numberOfSourceComponents;
+    return true;
   }
 };
 
@@ -143,10 +189,7 @@ inline std::array<double, NumberOfCompactCCZ4Fields> CompactCCZ4SourceTuple(
   std::span<const double> sourceTuple,
   const SourceVariableMapping& sourceMapping
 ) {
-  if (!sourceMapping.isValid(sourceTuple.size())) {
-    throw std::invalid_argument(
-      "CompactCCZ4SourceTuple: source mapping is incomplete or outside the source tuple");
-  }
+  sourceMapping.validateAgainstSourceTuple(sourceTuple.size());
 
   const auto sourceComponents = sourceMapping.componentsInCompactOrder();
 

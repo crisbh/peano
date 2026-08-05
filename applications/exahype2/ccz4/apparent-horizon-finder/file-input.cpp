@@ -65,11 +65,14 @@ void appendGridCells(vtkUnstructuredGrid* grid,
       "ReadGridFromFile: cell-data tuple count does not match the number of cells in "
       + context);
   }
-  for (std::size_t sourceIndex : selected) {
+  for (std::size_t compactColumn = 0; compactColumn < selected.size(); ++compactColumn) {
+    const std::size_t sourceIndex = selected[compactColumn];
     if (sourceIndex >= static_cast<std::size_t>(numberOfComponents)) {
       throw std::runtime_error(
-        "ReadGridFromFile: the variable mapping selects a component index that the "
-        "cell-data array does not have in " + context);
+        "ReadGridFromFile: required field "
+        + std::string(CompactFieldNames[compactColumn]) + " selects source component "
+        + std::to_string(sourceIndex) + ", but the cell-data tuple in " + context
+        + " has only " + std::to_string(numberOfComponents) + " components");
     }
   }
 
@@ -195,10 +198,7 @@ void readPvtuStreaming(const std::string& inputFile,
 void ReadGridFromFile(const std::string& inputFile,
                       GridData& gridData,
                       const SourceVariableMapping& sourceMapping) {
-  if (!sourceMapping.isComplete()) {
-    throw std::runtime_error(
-      "ReadGridFromFile: source mapping must define all fourteen CCZ4 fields");
-  }
+  sourceMapping.validateRequiredFields();
   const auto selected = selectedComponents(sourceMapping);
 
   if (hasExtension(inputFile, ".pvtu")) {

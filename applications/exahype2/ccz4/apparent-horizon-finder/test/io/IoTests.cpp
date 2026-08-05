@@ -27,6 +27,15 @@ bool fileExists(const std::string& path) {
   return probe.good();
 }
 
+SourceVariableMapping completeSourceMapping() {
+  return SourceVariableMapping{
+    .conformalMetric = {0, 1, 2, 3, 4, 5},
+    .conformalExtrinsicCurvature = {6, 7, 8, 9, 10, 11},
+    .traceK = 53,
+    .conformalFactor = 54
+  };
+}
+
 /**
  * Read the CCZ4 sample through ReadGridFromFile() and assert it loaded
  * correctly. The same data and ground truth hold whether it is read from the
@@ -39,11 +48,7 @@ void checkSampleGrid(const std::string& inputFile) {
   // conformal metric 0-5 -> columns 0-5, conformal extrinsic curvature 6-11 ->
   // columns 6-11, traceK (source 53) -> column 12, conformal factor (source 54)
   // -> column 13.
-  SourceVariableMapping sourceMapping;
-  sourceMapping.conformalMetric = {0, 1, 2, 3, 4, 5};
-  sourceMapping.conformalExtrinsicCurvature = {6, 7, 8, 9, 10, 11};
-  sourceMapping.traceK = 53;
-  sourceMapping.conformalFactor = 54;
+  const SourceVariableMapping sourceMapping = completeSourceMapping();
 
   GridData gridData;
   ReadGridFromFile(inputFile, gridData, sourceMapping);
@@ -171,6 +176,68 @@ void testCompactCCZ4SourceTuple() {
             << std::endl;
 }
 
+void expectReaderMappingRejected(const SourceVariableMapping& sourceMapping,
+                                 const std::string& expectedMessagePart) {
+  GridData unchanged;
+  unchanged.coordinates = {{1.0, 2.0, 3.0}};
+  unchanged.values.assign(GridData::numberOfVariables, 7.0);
+
+  bool rejected = false;
+  try {
+    ReadGridFromFile("mapping-validation-must-happen-before-opening-this-file.vtu",
+                     unchanged, sourceMapping);
+  } catch (const std::invalid_argument& error) {
+    rejected = true;
+    assert(std::string(error.what()).find(expectedMessagePart) != std::string::npos);
+  }
+
+  assert(rejected);
+  assert(unchanged.coordinates.size() == 1);
+  assert(unchanged.values.size() == GridData::numberOfVariables);
+  assert(unchanged.values.front() == 7.0);
+  assert(unchanged.isConsistent());
+}
+
+void testRequiredMappingFieldsAreRejectedBeforeFileOpen() {
+  SourceVariableMapping missingMetric = completeSourceMapping();
+  missingMetric.conformalMetric[2] = SourceVariableMapping::NotStored;
+  expectReaderMappingRejected(missingMetric, "gammaTilde_xz is NotStored");
+
+  SourceVariableMapping missingATilde = completeSourceMapping();
+  missingATilde.conformalExtrinsicCurvature[4] = SourceVariableMapping::NotStored;
+  expectReaderMappingRejected(missingATilde, "ATilde_yz is NotStored");
+
+  SourceVariableMapping missingK = completeSourceMapping();
+  missingK.traceK = SourceVariableMapping::NotStored;
+  expectReaderMappingRejected(missingK, "K is NotStored");
+
+  SourceVariableMapping missingPhi = completeSourceMapping();
+  missingPhi.conformalFactor = SourceVariableMapping::NotStored;
+  expectReaderMappingRejected(missingPhi, "phi is NotStored");
+
+  SourceVariableMapping duplicated = completeSourceMapping();
+  duplicated.conformalFactor = duplicated.traceK;
+  expectReaderMappingRejected(duplicated, "K and phi both map to source component 53");
+
+  std::array<double, 54> shortSourceTuple{};
+  bool unavailableFieldRejected = false;
+  try {
+    (void)CompactCCZ4SourceTuple(shortSourceTuple, completeSourceMapping());
+  } catch (const std::invalid_argument& error) {
+    unavailableFieldRejected = true;
+    assert(std::string(error.what()).find("phi selects source component 54")
+           != std::string::npos);
+  }
+  assert(unavailableFieldRejected);
+
+  // Failed mappings cannot alter the fixed positions of later compact fields.
+  static_assert(static_cast<std::size_t>(CompactField::TraceK) == 12);
+  static_assert(static_cast<std::size_t>(CompactField::Phi) == 13);
+
+  std::cout << "Incomplete, duplicate, and unavailable required mappings are rejected"
+            << std::endl;
+}
+
 void testReadGridFromFile() {
   const std::string vtuFile = samplePath("sample_data_S.vtu");
   const std::string pvtuFile = samplePath("pieces/sample_data_S.pvtu");
@@ -211,6 +278,7 @@ int main() {
   std::cout << "Apparent Horizon Finder I/O tests begin..." << std::endl;
 
   testCompactCCZ4SourceTuple();
+  testRequiredMappingFieldsAreRejectedBeforeFileOpen();
   testReadGridFromFile();
   testReadGridFromPeano();
   testWriteAHToFile();
