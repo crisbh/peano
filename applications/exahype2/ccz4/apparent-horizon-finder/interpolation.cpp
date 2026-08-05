@@ -7,6 +7,32 @@
 
 namespace exahype2::ccz4::ahf {
 
+double LinearReconstructionWeight(
+  double distance,
+  double lengthScale,
+  const LinearReconstructionOptions& options
+) {
+  if (!std::isfinite(distance) || distance < 0.0
+      || !std::isfinite(lengthScale) || lengthScale <= 0.0) {
+    throw std::invalid_argument(
+      "LinearReconstructionWeight: distance and length scale must be finite and valid");
+  }
+  if (options.method == LinearReconstructionMethod::Unweighted) {
+    return 1.0;
+  }
+  if (!std::isfinite(options.weightSupport) || options.weightSupport <= 0.0) {
+    throw std::invalid_argument(
+      "LinearReconstructionWeight: weight support must be finite and strictly positive");
+  }
+  const double scaledDistance = distance / (options.weightSupport * lengthScale);
+  const double weight = std::exp(-scaledDistance * scaledDistance);
+  if (!std::isfinite(weight) || weight <= 0.0) {
+    throw std::invalid_argument(
+      "LinearReconstructionWeight: computed weight must be finite and strictly positive");
+  }
+  return weight;
+}
+
 GridCoordinate SurfacePointToCartesian(
   const AHGuessPoint& surfacePoint,
   const ReferencePoint& referencePoint
@@ -89,13 +115,22 @@ std::vector<std::size_t> FindNearestGridCells(
 LinearPolynomialFit FitLinearPolynomial(
   std::span<const GridCoordinate> sampleCoordinates,
   std::span<const double> sampleValues,
-  const GridCoordinate& target
+  const GridCoordinate& target,
+  const LinearReconstructionOptions& options
 ) {
   constexpr std::size_t BasisSize = 4;
   if (sampleCoordinates.size() != sampleValues.size()) {
     throw std::invalid_argument(
       "FitLinearPolynomial: coordinate and value counts must match");
   }
+  const std::size_t requestedCount = options.numberOfNeighbours == 0
+    ? sampleCoordinates.size() : options.numberOfNeighbours;
+  if (requestedCount > sampleCoordinates.size()) {
+    throw std::invalid_argument(
+      "FitLinearPolynomial: requested neighbour count exceeds supplied samples");
+  }
+  sampleCoordinates = sampleCoordinates.first(requestedCount);
+  sampleValues = sampleValues.first(requestedCount);
   if (sampleCoordinates.size() < BasisSize) {
     throw std::invalid_argument(
       "FitLinearPolynomial: degree-1 reconstruction requires at least four samples");
@@ -103,6 +138,11 @@ LinearPolynomialFit FitLinearPolynomial(
   if (!std::isfinite(target.x) || !std::isfinite(target.y)
       || !std::isfinite(target.z)) {
     throw std::invalid_argument("FitLinearPolynomial: target must be finite");
+  }
+  if (!std::isfinite(options.rankToleranceMultiplier)
+      || options.rankToleranceMultiplier <= 0.0) {
+    throw std::invalid_argument(
+      "FitLinearPolynomial: rank tolerance multiplier must be finite and positive");
   }
 
   double lengthScale = 0.0;
@@ -123,6 +163,15 @@ LinearPolynomialFit FitLinearPolynomial(
       "FitLinearPolynomial: samples are geometrically rank deficient");
   }
 
+  std::vector<double> squareRootWeights(sampleCoordinates.size());
+  for (std::size_t row = 0; row < sampleCoordinates.size(); ++row) {
+    const GridCoordinate& sample = sampleCoordinates[row];
+    const double distance = std::hypot(
+      sample.x - target.x, sample.y - target.y, sample.z - target.z);
+    squareRootWeights[row] = std::sqrt(
+      LinearReconstructionWeight(distance, lengthScale, options));
+  }
+
   std::array<std::vector<double>, BasisSize> columns;
   for (auto& column : columns) {
     column.resize(sampleCoordinates.size());
@@ -132,6 +181,9 @@ LinearPolynomialFit FitLinearPolynomial(
     columns[1][row] = (sampleCoordinates[row].x - target.x) / lengthScale;
     columns[2][row] = (sampleCoordinates[row].y - target.y) / lengthScale;
     columns[3][row] = (sampleCoordinates[row].z - target.z) / lengthScale;
+    for (std::size_t column = 0; column < BasisSize; ++column) {
+      columns[column][row] *= squareRootWeights[row];
+    }
   }
 
   const auto dot = [](const std::vector<double>& first,
@@ -145,7 +197,7 @@ LinearPolynomialFit FitLinearPolynomial(
   const double largestInitialNorm =
     std::sqrt(*std::max_element(squaredNorm.begin(), squaredNorm.end()));
   const double rankTolerance =
-    64.0 * std::numeric_limits<double>::epsilon()
+    options.rankToleranceMultiplier * std::numeric_limits<double>::epsilon()
     * static_cast<double>(sampleCoordinates.size()) * largestInitialNorm;
 
   std::array<std::array<double, BasisSize>, BasisSize> upperTriangular{};
@@ -191,9 +243,10 @@ LinearPolynomialFit FitLinearPolynomial(
 
   std::array<double, BasisSize> projectedValues{};
   for (std::size_t column = 0; column < BasisSize; ++column) {
-    projectedValues[column] = std::inner_product(
-      columns[column].begin(), columns[column].end(), sampleValues.begin(), 0.0
-    );
+    for (std::size_t row = 0; row < sampleValues.size(); ++row) {
+      projectedValues[column] +=
+        columns[column][row] * sampleValues[row] * squareRootWeights[row];
+    }
   }
   std::array<double, BasisSize> pivotedCoefficients{};
   for (std::size_t reverse = BasisSize; reverse-- > 0;) {
@@ -229,12 +282,20 @@ LinearPolynomialFit FitLinearPolynomial(
 CompactLinearFit FitCompactLinearPolynomial(
   const GridData& gridData,
   std::span<const std::size_t> neighbourIndices,
-  const GridCoordinate& target
+  const GridCoordinate& target,
+  const LinearReconstructionOptions& options
 ) {
   constexpr std::size_t BasisSize = 4;
   constexpr std::size_t FieldCount = NumberOfCompactFields;
 
   // 1. Validate the stencil, target, and fixed 14-column grid layout.
+  const std::size_t requestedCount = options.numberOfNeighbours == 0
+    ? neighbourIndices.size() : options.numberOfNeighbours;
+  if (requestedCount > neighbourIndices.size()) {
+    throw std::invalid_argument(
+      "FitCompactLinearPolynomial: requested neighbour count exceeds supplied neighbours");
+  }
+  neighbourIndices = neighbourIndices.first(requestedCount);
   if (neighbourIndices.size() < BasisSize) {
     throw std::invalid_argument(
       "FitCompactLinearPolynomial: degree-1 reconstruction requires at least four neighbours");
@@ -247,6 +308,11 @@ CompactLinearFit FitCompactLinearPolynomial(
   if (!gridData.isConsistent()) {
     throw std::invalid_argument(
       "FitCompactLinearPolynomial: GridData must contain fourteen values per cell");
+  }
+  if (!std::isfinite(options.rankToleranceMultiplier)
+      || options.rankToleranceMultiplier <= 0.0) {
+    throw std::invalid_argument(
+      "FitCompactLinearPolynomial: rank tolerance multiplier must be finite and positive");
   }
 
   // 2. Set ell to the farthest-neighbour distance and validate coordinates.
@@ -272,6 +338,15 @@ CompactLinearFit FitCompactLinearPolynomial(
       "FitCompactLinearPolynomial: neighbours are geometrically rank deficient");
   }
 
+  std::vector<double> squareRootWeights(neighbourIndices.size());
+  for (std::size_t row = 0; row < neighbourIndices.size(); ++row) {
+    const GridCoordinate& sample = gridData.coordinates[neighbourIndices[row]];
+    const double distance = std::hypot(
+      sample.x - target.x, sample.y - target.y, sample.z - target.z);
+    squareRootWeights[row] = std::sqrt(
+      LinearReconstructionWeight(distance, lengthScale, options));
+  }
+
   // 3. Build the shared n-by-4 design matrix [1, X, Y, Z].
   std::array<std::vector<double>, BasisSize> columns;
   for (auto& column : columns) {
@@ -283,6 +358,9 @@ CompactLinearFit FitCompactLinearPolynomial(
     columns[1][row] = (sample.x - target.x) / lengthScale;
     columns[2][row] = (sample.y - target.y) / lengthScale;
     columns[3][row] = (sample.z - target.z) / lengthScale;
+    for (std::size_t column = 0; column < BasisSize; ++column) {
+      columns[column][row] *= squareRootWeights[row];
+    }
   }
 
   // 4. Factor the design matrix once using column-pivoted modified Gram-Schmidt QR.
@@ -297,7 +375,7 @@ CompactLinearFit FitCompactLinearPolynomial(
   const double largestInitialNorm =
     std::sqrt(*std::max_element(squaredNorm.begin(), squaredNorm.end()));
   const double rankTolerance =
-    64.0 * std::numeric_limits<double>::epsilon()
+    options.rankToleranceMultiplier * std::numeric_limits<double>::epsilon()
     * static_cast<double>(neighbourIndices.size()) * largestInitialNorm;
 
   std::array<std::array<double, BasisSize>, BasisSize> upperTriangular{};
@@ -347,7 +425,8 @@ CompactLinearFit FitCompactLinearPolynomial(
           throw std::invalid_argument(
             "FitCompactLinearPolynomial: compact values must be finite");
         }
-        projected[basis][field] += columns[basis][row] * compactRow[field];
+        projected[basis][field] +=
+          columns[basis][row] * compactRow[field] * squareRootWeights[row];
       }
     }
   }

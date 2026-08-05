@@ -260,6 +260,114 @@ void testFitLinearPolynomialInvalidStencils() {
   );
 }
 
+void testWeightedLinearPolynomialReconstruction() {
+  const std::vector<GridCoordinate> irregular{
+    {-2.1, 0.3, 1.7}, {0.2, -1.4, 0.1}, {3.0, 2.2, -0.8},
+    {-0.4, 1.1, -2.5}, {1.7, -0.6, 2.9}, {-3.2, -2.0, 0.4},
+    {0.9, 3.1, 1.2}, {2.5, 0.4, -3.3}
+  };
+  const GridCoordinate target{0.7, -0.2, 1.3};
+  const std::vector<double> values =
+    evaluateLinearField(irregular, 2.0, {3.0, -4.0, 5.0});
+  const LinearReconstructionOptions weighted{
+    .method = LinearReconstructionMethod::WeightedMovingLeastSquares,
+    .weightSupport = 0.75
+  };
+  const LinearPolynomialFit weightedFit =
+    FitLinearPolynomial(irregular, values, target, weighted);
+  const LinearPolynomialFit unweightedFit =
+    FitLinearPolynomial(irregular, values, target);
+
+  assert(approximatelyEqual(weightedFit.value, 11.4));
+  assert(approximatelyEqual(weightedFit.derivative[0], 3.0));
+  assert(approximatelyEqual(weightedFit.derivative[1], -4.0));
+  assert(approximatelyEqual(weightedFit.derivative[2], 5.0));
+  assert(approximatelyEqual(weightedFit.value, unweightedFit.value));
+  for (std::size_t direction = 0; direction < 3; ++direction) {
+    assert(approximatelyEqual(
+      weightedFit.derivative[direction], unweightedFit.derivative[direction]));
+  }
+
+  // A coincident sample has distance zero and therefore exactly unit weight.
+  const std::vector<GridCoordinate> coincident{
+    target, {1.2, -0.2, 1.3}, {0.7, 0.3, 1.3}, {0.7, -0.2, 1.8},
+    {0.1, -0.8, 0.7}
+  };
+  assert(LinearReconstructionWeight(0.0, 1.0, weighted) == 1.0);
+  assertLinearFit(coincident, 2.0, {3.0, -4.0, 5.0}, target);
+  const auto coincidentValues =
+    evaluateLinearField(coincident, 2.0, {3.0, -4.0, 5.0});
+  const LinearPolynomialFit coincidentFit =
+    FitLinearPolynomial(coincident, coincidentValues, target, weighted);
+  assert(approximatelyEqual(coincidentFit.value, 11.4));
+  assert(approximatelyEqual(coincidentFit.derivative[0], 3.0));
+  assert(approximatelyEqual(coincidentFit.derivative[1], -4.0));
+  assert(approximatelyEqual(coincidentFit.derivative[2], 5.0));
+}
+
+void testWeightedFitFavoursNearbySamples() {
+  const std::vector<GridCoordinate> coordinates{
+    {0.0, 0.0, 0.0}, {0.1, 0.0, 0.0},
+    {0.0, 0.1, 0.0}, {0.0, 0.0, 0.1},
+    {-1.0, 0.0, 0.0}, {0.0, -1.0, 0.0},
+    {0.0, 0.0, -1.0}, {1.0, 1.0, 1.0}
+  };
+  const std::vector<double> noisyValues{0.0, 0.0, 0.0, 0.0, 10.0, 10.0, 10.0, 10.0};
+  const LinearPolynomialFit unweighted =
+    FitLinearPolynomial(coordinates, noisyValues, {0.0, 0.0, 0.0});
+  const LinearPolynomialFit weighted = FitLinearPolynomial(
+    coordinates,
+    noisyValues,
+    {0.0, 0.0, 0.0},
+    {.method = LinearReconstructionMethod::WeightedMovingLeastSquares,
+     .weightSupport = 0.5}
+  );
+  assert(std::abs(weighted.value) < std::abs(unweighted.value));
+}
+
+void testWeightedLinearPolynomialFailures() {
+  const std::vector<GridCoordinate> fullRank{
+    {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+    {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}
+  };
+  const std::vector<double> values{1.0, 2.0, 3.0, 4.0};
+  for (double support : {0.0, -1.0, std::numeric_limits<double>::quiet_NaN()}) {
+    bool rejected = false;
+    try {
+      (void)FitLinearPolynomial(
+        fullRank,
+        values,
+        {0.0, 0.0, 0.0},
+        {.method = LinearReconstructionMethod::WeightedMovingLeastSquares,
+         .weightSupport = support}
+      );
+    } catch (const std::invalid_argument&) {
+      rejected = true;
+    }
+    assert(rejected);
+  }
+
+  const std::vector<GridCoordinate> coplanar{
+    {-1.0, -1.0, 0.0}, {1.0, -1.0, 0.0},
+    {-1.0, 1.0, 0.0}, {1.0, 1.0, 0.0}, {0.0, 0.0, 0.0}
+  };
+  bool rankRejected = false;
+  try {
+    (void)FitLinearPolynomial(
+      coplanar,
+      evaluateLinearField(coplanar, 2.0, {3.0, -4.0, 5.0}),
+      {0.0, 0.0, 0.0},
+      {.method = LinearReconstructionMethod::WeightedMovingLeastSquares}
+    );
+  } catch (const std::invalid_argument& error) {
+    rankRejected = std::string(error.what()).find("rank deficient") != std::string::npos;
+  }
+  assert(rankRejected);
+
+  std::cout << "Weighted MLS handles locality, coincidence, and invalid stencils"
+            << std::endl;
+}
+
 void testFitCompactLinearPolynomial() {
   const GridCoordinate target{0.7, -0.2, 1.3};
   GridData gridData;
@@ -291,7 +399,14 @@ void testFitCompactLinearPolynomial() {
   }
 
   const std::vector<std::size_t> neighbours{7, 0, 5, 2, 4, 1, 6, 3};
-  const CompactLinearFit fit =
+  const CompactLinearFit fit = FitCompactLinearPolynomial(
+    gridData,
+    neighbours,
+    target,
+    {.method = LinearReconstructionMethod::WeightedMovingLeastSquares,
+     .weightSupport = 0.75}
+  );
+  const CompactLinearFit unweightedFit =
     FitCompactLinearPolynomial(gridData, neighbours, target);
 
   assert(fit.numberOfNeighbours == neighbours.size());
@@ -304,9 +419,12 @@ void testFitCompactLinearPolynomial() {
       + derivatives[field][1] * target.y
       + derivatives[field][2] * target.z;
     assert(approximatelyEqual(fit.values[field], expectedValue));
+    assert(approximatelyEqual(fit.values[field], unweightedFit.values[field]));
     for (std::size_t direction = 0; direction < 3; ++direction) {
       assert(approximatelyEqual(
         fit.gradients[field][direction], derivatives[field][direction]));
+      assert(approximatelyEqual(
+        fit.gradients[field][direction], unweightedFit.gradients[field][direction]));
     }
   }
 
@@ -445,6 +563,9 @@ int main() {
   testInvalidNearestGridCellInputs();
   testFitLinearPolynomialExactReproduction();
   testFitLinearPolynomialInvalidStencils();
+  testWeightedLinearPolynomialReconstruction();
+  testWeightedFitFavoursNearbySamples();
+  testWeightedLinearPolynomialFailures();
   testFitCompactLinearPolynomial();
   testInterpolateToSurfaceNearestNeighbour();
   testInterpolateFromCartesianToShell();

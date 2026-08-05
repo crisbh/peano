@@ -40,6 +40,32 @@ struct LinearPolynomialFit {
   double lengthScale = 0.0;
 };
 
+enum class LinearReconstructionMethod {
+  Unweighted,
+  WeightedMovingLeastSquares
+};
+
+struct LinearReconstructionOptions {
+  LinearReconstructionMethod method = LinearReconstructionMethod::Unweighted;
+  /** Zero uses every supplied sample; otherwise use the first requested samples. */
+  std::size_t numberOfNeighbours = 0;
+  /** Gaussian support alpha in exp(-(distance/(alpha*ell))^2). */
+  double weightSupport = 1.0;
+  /**
+   * Multiplier applied to epsilon*n*largest-column-norm for rank detection.
+   * Controls how strictly the QR solver decides that the neighbour geometry
+   * is rank deficient.
+   */
+  double rankToleranceMultiplier = 64.0;
+};
+
+/** Evaluate the isolated unweighted/Gaussian row weight. */
+double LinearReconstructionWeight(
+  double distance,
+  double lengthScale,
+  const LinearReconstructionOptions& options
+);
+
 /**
  * Unweighted degree-1 scalar least-squares reconstruction using the basis
  * [1,X,Y,Z] and a column-pivoted QR solve. The length scale ell is the maximum
@@ -52,7 +78,8 @@ struct LinearPolynomialFit {
 LinearPolynomialFit FitLinearPolynomial(
   std::span<const GridCoordinate> sampleCoordinates,
   std::span<const double> sampleValues,
-  const GridCoordinate& target
+  const GridCoordinate& target,
+  const LinearReconstructionOptions& options = {}
 );
 
 struct CompactLinearFit {
@@ -72,7 +99,8 @@ struct CompactLinearFit {
 CompactLinearFit FitCompactLinearPolynomial(
   const GridData& gridData,
   std::span<const std::size_t> neighbourIndices,
-  const GridCoordinate& target
+  const GridCoordinate& target,
+  const LinearReconstructionOptions& options = {}
 );
 
 /**
