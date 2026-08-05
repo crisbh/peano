@@ -166,6 +166,98 @@ void testInvalidNearestGridCellInputs() {
   expectNeighbourSearchRejected(twoCells, {0.0, 0.0, -infinity}, 1, "must be finite");
 }
 
+void setCompactCell(
+  GridData& gridData,
+  std::size_t cellIndex,
+  const std::array<double, NumberOfCompactCCZ4Fields>& values
+) {
+  std::copy(
+    values.begin(),
+    values.end(),
+    gridData.values.begin() + cellIndex * GridData::numberOfVariables
+  );
+}
+
+void assertTensor(const Tensor3& actual, const Tensor3& expected) {
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      assert(approximatelyEqual(actual[i][j], expected[i][j]));
+    }
+  }
+}
+
+void testInterpolateToSurfaceNearestNeighbour() {
+  constexpr double Pi = std::numbers::pi_v<double>;
+  constexpr ReferencePoint Reference{10.0, -4.0, 2.0};
+  GridData gridData;
+  gridData.resize(3);
+  gridData.coordinates = {
+    {11.0, -4.0, 2.0},  // target for first AH point
+    {10.0, -3.0, 2.0},  // target for second AH point
+    {30.0, 30.0, 30.0}  // deliberately irrelevant cell
+  };
+  setCompactCell(gridData, 0, {
+    4.0, 2.0, 6.0, 8.0, 10.0, 12.0,
+    1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
+    3.0, 2.0
+  });
+  setCompactCell(gridData, 1, {
+    9.0, 3.0, 6.0, 12.0, 15.0, 18.0,
+    2.0, 4.0, 6.0, 8.0, 10.0, 12.0,
+    6.0, 3.0
+  });
+  setCompactCell(gridData, 2, {
+    101.0, 102.0, 103.0, 104.0, 105.0, 106.0,
+    107.0, 108.0, 109.0, 110.0, 111.0, 112.0,
+    113.0, 4.0
+  });
+
+  const AHGuess ahGuess{.points = {
+    {.r = 1.0, .rho = 0.0, .sigma = 0.0},
+    {.r = 1.0, .rho = Pi / 2.0, .sigma = 0.0}
+  }};
+  InterpolatedSurface surface;
+  InterpolateToSurfaceNearestNeighbour(gridData, ahGuess, Reference, surface);
+
+  assert(surface.matches(ahGuess));
+  assert(surface.points.size() == 2);
+
+  const Tensor3 expectedMetric0{{
+    {{1.0, 0.5, 1.5}}, {{0.5, 2.0, 2.5}}, {{1.5, 2.5, 3.0}}
+  }};
+  const Tensor3 expectedCurvature0{{
+    {{1.25, 1.0, 2.25}}, {{1.0, 3.0, 3.75}}, {{2.25, 3.75, 4.5}}
+  }};
+  const Tensor3 expectedMetric1{{
+    {{1.0, 1.0 / 3.0, 2.0 / 3.0}},
+    {{1.0 / 3.0, 4.0 / 3.0, 5.0 / 3.0}},
+    {{2.0 / 3.0, 5.0 / 3.0, 2.0}}
+  }};
+  const Tensor3 expectedCurvature1{{
+    {{20.0 / 9.0, 10.0 / 9.0, 2.0}},
+    {{10.0 / 9.0, 32.0 / 9.0, 40.0 / 9.0}},
+    {{2.0, 40.0 / 9.0, 16.0 / 3.0}}
+  }};
+
+  assertTensor(surface.points[0].geometry.spatialMetric, expectedMetric0);
+  assertTensor(surface.points[0].geometry.extrinsicCurvature, expectedCurvature0);
+  assert(surface.points[0].geometry.traceK == 3.0);
+  assertTensor(surface.points[1].geometry.spatialMetric, expectedMetric1);
+  assertTensor(surface.points[1].geometry.extrinsicCurvature, expectedCurvature1);
+  assert(surface.points[1].geometry.traceK == 6.0);
+
+  const Tensor3Derivative zeroDerivative{};
+  for (const InterpolatedSurfacePoint& point : surface.points) {
+    assert(point.geometry.spatialMetricDerivative == zeroDerivative);
+    assert(!point.geometry.spatialMetricDerivativeAvailable);
+    assert(point.surfaceNormal == Vector3{});
+    assert(point.surfaceNormalDerivative == Tensor3{});
+  }
+
+  std::cout << "Nearest-neighbour sampling populates surface physical geometry in AH order"
+            << std::endl;
+}
+
 void testInterpolateFromCartesianToShell() {
   std::cout << "Placeholder test for InterpolateFromCartesianToShell" << std::endl;
 }
@@ -185,6 +277,7 @@ int main() {
   testInvalidSurfacePointToCartesianInputs();
   testFindNearestGridCells();
   testInvalidNearestGridCellInputs();
+  testInterpolateToSurfaceNearestNeighbour();
   testInterpolateFromCartesianToShell();
   testInterpolateFromShellToSurface();
 

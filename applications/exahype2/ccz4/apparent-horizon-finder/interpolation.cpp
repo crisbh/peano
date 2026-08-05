@@ -84,6 +84,53 @@ std::vector<std::size_t> FindNearestGridCells(
   return indices;
 }
 
+void InterpolateToSurfaceNearestNeighbour(
+  const GridData& gridData,
+  const AHGuess& ahGuess,
+  const ReferencePoint& referencePoint,
+  InterpolatedSurface& interpolatedSurface
+) {
+  std::vector<InterpolatedSurfacePoint> points;
+  points.reserve(ahGuess.points.size());
+
+  for (const AHGuessPoint& guessPoint : ahGuess.points) {
+    const GridCoordinate target = SurfacePointToCartesian(guessPoint, referencePoint);
+    const std::size_t cellIndex = FindNearestGridCells(gridData, target, 1).front();
+    const CompactCCZ4CellView cell = gridData.cell(cellIndex);
+
+    std::array<double, NumberOfSymmetricTensorComponents> gammaTildeComponents{};
+    std::array<double, NumberOfSymmetricTensorComponents> ATildeComponents{};
+    for (std::size_t component = 0;
+         component < NumberOfSymmetricTensorComponents;
+         ++component) {
+      gammaTildeComponents[component] = cell.conformalMetricComponent(component);
+      ATildeComponents[component] =
+        cell.conformalExtrinsicCurvatureComponent(component);
+    }
+
+    const Tensor3 gammaTilde = UnpackSymmetricTensor(gammaTildeComponents);
+    const Tensor3 ATilde = UnpackSymmetricTensor(ATildeComponents);
+    const double traceK = cell.traceK();
+    const double phi = cell.phi();
+
+    InterpolatedSurfacePoint point{
+      .r = guessPoint.r,
+      .rho = guessPoint.rho,
+      .sigma = guessPoint.sigma
+    };
+    point.geometry.spatialMetric = ComputePhysicalSpatialMetric(gammaTilde, phi);
+    point.geometry.extrinsicCurvature =
+      ComputePhysicalExtrinsicCurvature(ATilde, traceK, gammaTilde, phi);
+    point.geometry.traceK = traceK;
+    // Nearest-neighbour sampling supplies no meaningful Cartesian derivatives.
+    point.geometry.spatialMetricDerivative = {};
+    point.geometry.spatialMetricDerivativeAvailable = false;
+    points.push_back(point);
+  }
+
+  interpolatedSurface.points = std::move(points);
+}
+
 void InterpolateFromCartesianToShell(const GridData& gridData,
                                      const AHGuess& ahGuess,
                                      const ReferencePoint& referencePoint,

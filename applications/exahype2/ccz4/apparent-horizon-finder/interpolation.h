@@ -35,6 +35,21 @@ std::vector<std::size_t> FindNearestGridCells(
 );
 
 /**
+ * Sample each AH surface point from its nearest Cartesian cell centre and
+ * reconstruct the physical spatial metric and extrinsic curvature.
+ *
+ * This low-order baseline does not compute metric derivatives, coordinate
+ * derivatives, or surface normals. Their storage is zero-initialised and
+ * spatialMetricDerivativeAvailable is false for every output point.
+ */
+void InterpolateToSurfaceNearestNeighbour(
+  const GridData& gridData,
+  const AHGuess& ahGuess,
+  const ReferencePoint& referencePoint,
+  InterpolatedSurface& interpolatedSurface
+);
+
+/**
  * Interpolate the Cartesian grid data to a shell-like subdomain around the current AH guess.
  */
 void InterpolateFromCartesianToShell(const GridData& gridData,

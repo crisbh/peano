@@ -500,6 +500,7 @@ struct InterpolatedGeometryData {
   std::array<Tensor3, 2> coordinateHessian{};   // X^u_ij
   Tensor3 spatialMetric{};                     // gamma_ij
   Tensor3Derivative spatialMetricDerivative{};  // [k][i][j] = partial_k gamma_ij
+  bool spatialMetricDerivativeAvailable = false;
   Tensor3 extrinsicCurvature{};                // K_ij
   double traceK = 0.0;
 };
