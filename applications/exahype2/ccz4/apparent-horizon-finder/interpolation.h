@@ -103,6 +103,33 @@ CompactLinearFit FitCompactLinearPolynomial(
   const LinearReconstructionOptions& options = {}
 );
 
+enum class CartesianToSurfaceMethod {
+  NearestNeighbour,
+  UnweightedDegree1,
+  WeightedDegree1
+};
+
+struct CartesianToSurfaceOptions {
+  CartesianToSurfaceMethod method = CartesianToSurfaceMethod::WeightedDegree1;
+  std::size_t numberOfNeighbours = 8;
+  double weightSupport = 1.0;
+  double rankToleranceMultiplier = 64.0;
+};
+
+/**
+ * Interpolate compact Cartesian fields directly to every AH surface point.
+ * Degree-1 modes populate physical metric derivatives in [k][i][j] order,
+ * where k is the Cartesian differentiation direction. Surface-shape and
+ * angular derivatives are intentionally not computed.
+ */
+void InterpolateCartesianToSurface(
+  const GridData& gridData,
+  const AHGuess& ahGuess,
+  const ReferencePoint& referencePoint,
+  InterpolatedSurface& interpolatedSurface,
+  const CartesianToSurfaceOptions& options = {}
+);
+
 /**
  * Sample each AH surface point from its nearest Cartesian cell centre and
  * reconstruct the physical spatial metric and extrinsic curvature.

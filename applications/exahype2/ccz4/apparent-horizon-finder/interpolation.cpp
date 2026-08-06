@@ -4,6 +4,7 @@
 #include <array>
 #include <limits>
 #include <numeric>
+#include <sstream>
 
 namespace exahype2::ccz4::ahf {
 
@@ -472,44 +473,150 @@ void InterpolateToSurfaceNearestNeighbour(
   const ReferencePoint& referencePoint,
   InterpolatedSurface& interpolatedSurface
 ) {
+  InterpolateCartesianToSurface(
+    gridData,
+    ahGuess,
+    referencePoint,
+    interpolatedSurface,
+    {.method = CartesianToSurfaceMethod::NearestNeighbour, .numberOfNeighbours = 1}
+  );
+}
+
+void InterpolateCartesianToSurface(
+  const GridData& gridData,
+  const AHGuess& ahGuess,
+  const ReferencePoint& referencePoint,
+  InterpolatedSurface& interpolatedSurface,
+  const CartesianToSurfaceOptions& options
+) {
+  // 1. Validate options and prepare a replacement output surface.
+  if (options.numberOfNeighbours == 0) {
+    throw std::invalid_argument(
+      "InterpolateCartesianToSurface: neighbour count must be greater than zero");
+  }
+
   std::vector<InterpolatedSurfacePoint> points;
   points.reserve(ahGuess.points.size());
 
-  for (const AHGuessPoint& guessPoint : ahGuess.points) {
-    const GridCoordinate target = SurfacePointToCartesian(guessPoint, referencePoint);
-    const std::size_t cellIndex = FindNearestGridCells(gridData, target, 1).front();
-    const CompactCellView cell = gridData.cell(cellIndex);
-
-    std::array<double, NumberOfSymmetricTensorComponents> gammaTildeComponents{};
-    std::array<double, NumberOfSymmetricTensorComponents> ATildeComponents{};
-    for (std::size_t component = 0;
-         component < NumberOfSymmetricTensorComponents;
-         ++component) {
-      gammaTildeComponents[component] = cell.conformalMetricComponent(component);
-      ATildeComponents[component] =
-        cell.conformalExtrinsicCurvatureComponent(component);
-    }
-
-    const Tensor3 gammaTilde = UnpackSymmetricTensor(gammaTildeComponents);
-    const Tensor3 ATilde = UnpackSymmetricTensor(ATildeComponents);
-    const double traceK = cell.traceK();
-    const double phi = cell.phi();
-
-    InterpolatedSurfacePoint point{
-      .r = guessPoint.r,
-      .rho = guessPoint.rho,
-      .sigma = guessPoint.sigma
+  // 2. Reconstruct the Cartesian fields independently at each AH surface point.
+  for (std::size_t pointIndex = 0; pointIndex < ahGuess.points.size(); ++pointIndex) {
+    const AHGuessPoint& guessPoint = ahGuess.points[pointIndex];
+    GridCoordinate target{
+      std::numeric_limits<double>::quiet_NaN(),
+      std::numeric_limits<double>::quiet_NaN(),
+      std::numeric_limits<double>::quiet_NaN()
     };
-    point.geometry.spatialMetric = ComputePhysicalSpatialMetric(gammaTilde, phi);
-    point.geometry.extrinsicCurvature =
-      ComputePhysicalExtrinsicCurvature(ATilde, traceK, gammaTilde, phi);
-    point.geometry.traceK = traceK;
-    // Nearest-neighbour sampling supplies no meaningful Cartesian derivatives.
-    point.geometry.spatialMetricDerivative = {};
-    point.geometry.spatialMetricDerivativeAvailable = false;
-    points.push_back(point);
+    try {
+      // 3. Convert the surface point to Cartesian coordinates and select neighbours.
+      target = SurfacePointToCartesian(guessPoint, referencePoint);
+      const std::size_t neighbourCount =
+        options.method == CartesianToSurfaceMethod::NearestNeighbour
+        ? 1 : options.numberOfNeighbours;
+      const std::vector<std::size_t> neighbours =
+        FindNearestGridCells(gridData, target, neighbourCount);
+
+      std::array<double, NumberOfCompactFields> compactValues{};
+      std::array<Vector3, NumberOfCompactFields> compactGradients{};
+      bool derivativesAvailable = false;
+
+      // 4. Sample one cell directly, or reconstruct all fields with degree-1 MLS.
+      if (options.method == CartesianToSurfaceMethod::NearestNeighbour) {
+        const auto row = gridData.cell(neighbours.front()).row();
+        std::copy(row.begin(), row.end(), compactValues.begin());
+      } else {
+        const LinearReconstructionOptions reconstructionOptions{
+          .method = options.method == CartesianToSurfaceMethod::WeightedDegree1
+            ? LinearReconstructionMethod::WeightedMovingLeastSquares
+            : LinearReconstructionMethod::Unweighted,
+          .numberOfNeighbours = neighbourCount,
+          .weightSupport = options.weightSupport,
+          .rankToleranceMultiplier = options.rankToleranceMultiplier
+        };
+        const CompactLinearFit fit = FitCompactLinearPolynomial(
+          gridData, neighbours, target, reconstructionOptions);
+        compactValues = fit.values;
+        compactGradients = fit.gradients;
+        derivativesAvailable = true;
+      }
+
+      // 5. Unpack the fixed compact layout into conformal tensors, K, and direct phi.
+      std::array<double, NumberOfSymmetricTensorComponents> gammaTildeComponents{};
+      std::array<double, NumberOfSymmetricTensorComponents> ATildeComponents{};
+      for (std::size_t component = 0;
+           component < NumberOfSymmetricTensorComponents;
+           ++component) {
+        gammaTildeComponents[component] = compactValues[component];
+        ATildeComponents[component] = compactValues[component + 6];
+      }
+      const Tensor3 gammaTilde = UnpackSymmetricTensor(gammaTildeComponents);
+      const Tensor3 ATilde = UnpackSymmetricTensor(ATildeComponents);
+      const double traceK = compactValues[static_cast<std::size_t>(CompactField::TraceK)];
+      const double phi = compactValues[static_cast<std::size_t>(CompactField::Phi)];
+
+      // 6. Convert reconstructed conformal fields into physical geometry.
+      InterpolatedSurfacePoint point{
+        .r = guessPoint.r, .rho = guessPoint.rho, .sigma = guessPoint.sigma
+      };
+      point.geometry.spatialMetric = ComputePhysicalSpatialMetric(gammaTilde, phi);
+      point.geometry.extrinsicCurvature =
+        ComputePhysicalExtrinsicCurvature(ATilde, traceK, gammaTilde, phi);
+      point.geometry.traceK = traceK;
+      point.geometry.spatialMetricDerivativeAvailable = derivativesAvailable;
+
+      // 7. MLS gradients become physical metric derivatives in [k][i][j] order.
+      if (derivativesAvailable) {
+        Tensor3Derivative gammaTildeDerivative{};
+        for (std::size_t k = 0; k < 3; ++k) {
+          std::array<double, NumberOfSymmetricTensorComponents> components{};
+          for (std::size_t component = 0;
+               component < NumberOfSymmetricTensorComponents;
+               ++component) {
+            components[component] = compactGradients[component][k];
+          }
+          gammaTildeDerivative[k] = UnpackSymmetricTensor(components);
+        }
+        point.geometry.spatialMetricDerivative =
+          ComputePhysicalSpatialMetricDerivative(
+            gammaTilde,
+            gammaTildeDerivative,
+            phi,
+            compactGradients[static_cast<std::size_t>(CompactField::Phi)]
+          );
+      }
+
+      // 8. Reject non-finite geometry before committing this surface point.
+      const auto requireFinite = [pointIndex, &target](double value, const char* name) {
+        if (!std::isfinite(value)) {
+          std::ostringstream message;
+          message << "InterpolateCartesianToSurface: surface point " << pointIndex
+                  << " target (" << target.x << ", " << target.y << ", " << target.z
+                  << ") produced non-finite " << name;
+          throw std::runtime_error(message.str());
+        }
+      };
+      requireFinite(point.geometry.traceK, "trace K");
+      for (std::size_t i = 0; i < 3; ++i) {
+        for (std::size_t j = 0; j < 3; ++j) {
+          requireFinite(point.geometry.spatialMetric[i][j], "physical metric");
+          requireFinite(point.geometry.extrinsicCurvature[i][j], "extrinsic curvature");
+          for (std::size_t k = 0; k < 3; ++k) {
+            requireFinite(
+              point.geometry.spatialMetricDerivative[k][i][j], "metric derivative");
+          }
+        }
+      }
+      points.push_back(point);
+    } catch (const std::exception& error) {
+      // Attach the failing point and target to every lower-level error.
+      std::ostringstream message;
+      message << "InterpolateCartesianToSurface: surface point " << pointIndex
+              << " target (" << target.x << ", " << target.y << ", " << target.z
+              << ") failed: " << error.what();
+      throw std::runtime_error(message.str());
+    }
   }
 
+  // Commit only after every point has been reconstructed successfully.
   interpolatedSurface.points = std::move(points);
 }
 

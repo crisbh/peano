@@ -542,6 +542,168 @@ void testInterpolateToSurfaceNearestNeighbour() {
             << std::endl;
 }
 
+void testInterpolateCartesianToSurfaceDegree1() {
+  constexpr double Pi = std::numbers::pi_v<double>;
+  constexpr ReferencePoint Reference{1.0, -2.0, 0.5};
+  GridData gridData;
+  gridData.coordinates = {
+    {-1.0, -4.0, -1.0}, {3.0, -4.0, -1.0},
+    {-1.0, 0.0, -1.0}, {3.0, 0.0, -1.0},
+    {-1.0, -4.0, 2.0}, {3.0, -4.0, 2.0},
+    {-1.0, 0.0, 2.0}, {3.0, 0.0, 2.0}
+  };
+  gridData.resize(gridData.coordinates.size());
+
+  std::array<double, NumberOfCompactFields> constants{};
+  std::array<Vector3, NumberOfCompactFields> gradients{};
+  constants = {
+    4.0, 0.2, 0.3, 5.0, 0.4, 6.0,
+    0.1, 0.2, 0.3, 0.4, 0.5, 0.6,
+    3.0, 2.0
+  };
+  for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+    const double scale = static_cast<double>(field + 1);
+    gradients[field] = {0.01 * scale, -0.005 * scale, 0.002 * scale};
+  }
+  gradients[12] = {0.2, 0.1, -0.1};
+  gradients[13] = {0.05, -0.04, 0.03};
+
+  for (std::size_t cell = 0; cell < gridData.coordinates.size(); ++cell) {
+    const GridCoordinate& coordinate = gridData.coordinates[cell];
+    for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+      gridData.values[cell * GridData::numberOfVariables + field] =
+        constants[field] + gradients[field][0] * coordinate.x
+        + gradients[field][1] * coordinate.y
+        + gradients[field][2] * coordinate.z;
+    }
+  }
+
+  const AHGuess ahGuess{.points = {
+    {.r = 0.5, .rho = 0.0, .sigma = 0.0},
+    {.r = 0.5, .rho = Pi / 2.0, .sigma = 0.0},
+    {.r = 0.5, .rho = 0.0, .sigma = Pi / 2.0}
+  }};
+  InterpolatedSurface mlsSurface;
+  InterpolateCartesianToSurface(
+    gridData,
+    ahGuess,
+    Reference,
+    mlsSurface,
+    {.method = CartesianToSurfaceMethod::WeightedDegree1,
+     .numberOfNeighbours = 8,
+     .weightSupport = 0.8}
+  );
+  assert(mlsSurface.matches(ahGuess));
+
+  constexpr std::array<std::array<std::size_t, 3>, 3> tensorComponent{{
+    {{0, 1, 2}}, {{1, 3, 4}}, {{2, 4, 5}}
+  }};
+  for (std::size_t pointIndex = 0; pointIndex < ahGuess.points.size(); ++pointIndex) {
+    const GridCoordinate target =
+      SurfacePointToCartesian(ahGuess.points[pointIndex], Reference);
+    std::array<double, NumberOfCompactFields> targetValues{};
+    for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+      targetValues[field] = constants[field] + gradients[field][0] * target.x
+        + gradients[field][1] * target.y + gradients[field][2] * target.z;
+    }
+    const double phi = targetValues[13];
+    const double inversePhiSquared = 1.0 / (phi * phi);
+    const double inversePhiCubed = inversePhiSquared / phi;
+    const auto& geometry = mlsSurface.points[pointIndex].geometry;
+    assert(geometry.spatialMetricDerivativeAvailable);
+    assert(approximatelyEqual(geometry.traceK, targetValues[12]));
+    for (std::size_t i = 0; i < 3; ++i) {
+      for (std::size_t j = 0; j < 3; ++j) {
+        const std::size_t component = tensorComponent[i][j];
+        const double gammaTilde = targetValues[component];
+        const double ATilde = targetValues[component + 6];
+        assert(approximatelyEqual(
+          geometry.spatialMetric[i][j], gammaTilde * inversePhiSquared));
+        assert(approximatelyEqual(
+          geometry.extrinsicCurvature[i][j],
+          (ATilde + targetValues[12] * gammaTilde / 3.0) * inversePhiSquared));
+        for (std::size_t k = 0; k < 3; ++k) {
+          const double expectedDerivative =
+            gradients[component][k] * inversePhiSquared
+            - 2.0 * gammaTilde * gradients[13][k] * inversePhiCubed;
+          assert(approximatelyEqual(
+            geometry.spatialMetricDerivative[k][i][j], expectedDerivative));
+        }
+      }
+    }
+  }
+
+  InterpolatedSurface nearestSurface;
+  InterpolateCartesianToSurface(
+    gridData,
+    ahGuess,
+    Reference,
+    nearestSurface,
+    {.method = CartesianToSurfaceMethod::NearestNeighbour, .numberOfNeighbours = 1}
+  );
+  assert(!nearestSurface.points[0].geometry.spatialMetricDerivativeAvailable);
+  assert(!approximatelyEqual(
+    nearestSurface.points[0].geometry.spatialMetric[0][0],
+    mlsSurface.points[0].geometry.spatialMetric[0][0]));
+
+  std::cout << "Degree-1 MLS reconstructs physical surface geometry and Cartesian derivatives"
+            << std::endl;
+}
+
+void testInterpolateCartesianToSurfaceContextualFailures() {
+  GridData gridData;
+  gridData.resize(4);
+  gridData.coordinates = {
+    {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0},
+    {0.0, 1.0, 0.0}, {1.0, 1.0, 0.0}
+  };
+  for (std::size_t cell = 0; cell < gridData.coordinates.size(); ++cell) {
+    for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+      gridData.values[cell * GridData::numberOfVariables + field] = 1.0;
+    }
+    gridData.values[cell * GridData::numberOfVariables + 13] = 2.0;
+  }
+
+  bool rankFailureHasContext = false;
+  try {
+    InterpolatedSurface surface;
+    InterpolateCartesianToSurface(
+      gridData,
+      {.points = {{.r = 1.0, .rho = 0.0, .sigma = 0.0}}},
+      {0.0, 0.0, 0.0},
+      surface,
+      {.method = CartesianToSurfaceMethod::UnweightedDegree1,
+       .numberOfNeighbours = 4}
+    );
+  } catch (const std::runtime_error& error) {
+    const std::string message = error.what();
+    rankFailureHasContext = message.find("surface point 0") != std::string::npos
+                         && message.find("target (1") != std::string::npos;
+  }
+  assert(rankFailureHasContext);
+
+  bool invalidTargetHasContext = false;
+  try {
+    InterpolatedSurface surface;
+    InterpolateCartesianToSurface(
+      gridData,
+      {.points = {
+        {.r = 1.0, .rho = 0.0, .sigma = 0.0},
+        {.r = std::numeric_limits<double>::quiet_NaN(), .rho = 0.0, .sigma = 0.0}
+      }},
+      {0.0, 0.0, 0.0},
+      surface,
+      {.method = CartesianToSurfaceMethod::NearestNeighbour,
+       .numberOfNeighbours = 1}
+    );
+  } catch (const std::runtime_error& error) {
+    const std::string message = error.what();
+    invalidTargetHasContext = message.find("surface point 1") != std::string::npos
+                           && message.find("target (") != std::string::npos;
+  }
+  assert(invalidTargetHasContext);
+}
+
 void testInterpolateFromCartesianToShell() {
   std::cout << "Placeholder test for InterpolateFromCartesianToShell" << std::endl;
 }
@@ -568,6 +730,8 @@ int main() {
   testWeightedLinearPolynomialFailures();
   testFitCompactLinearPolynomial();
   testInterpolateToSurfaceNearestNeighbour();
+  testInterpolateCartesianToSurfaceDegree1();
+  testInterpolateCartesianToSurfaceContextualFailures();
   testInterpolateFromCartesianToShell();
   testInterpolateFromShellToSurface();
 
