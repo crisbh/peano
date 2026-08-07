@@ -3,6 +3,7 @@
 
 #include "ahf-data.h"
 
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -49,6 +50,38 @@ AnalyticCoordinateGeometry ComputeAnalyticCoordinateGeometry(
  *
  * @throws std::invalid_argument for an empty grid, an invalid neighbour count,
  * or a non-finite target coordinate.
+ */
+std::vector<std::size_t> FindNearestGridCellsBruteForce(
+  const GridData& gridData,
+  const GridCoordinate& target,
+  std::size_t neighbourCount
+);
+
+/** Immutable k-d tree; concurrent nearest-neighbour queries are read-only. */
+class CartesianSpatialIndex {
+public:
+  explicit CartesianSpatialIndex(const GridData& gridData);
+  std::vector<std::size_t> findNearest(
+    const GridCoordinate& target,
+    std::size_t neighbourCount
+  ) const;
+  std::size_t size() const;
+
+private:
+  struct Implementation;
+  std::shared_ptr<const Implementation> _implementation;
+};
+
+/** Query a previously built index without rebuilding it. */
+std::vector<std::size_t> FindNearestGridCells(
+  const CartesianSpatialIndex& spatialIndex,
+  const GridCoordinate& target,
+  std::size_t neighbourCount
+);
+
+/**
+ * Compatibility interface for one-off queries. Repeated queries should build
+ * CartesianSpatialIndex once and use the overload above.
  */
 std::vector<std::size_t> FindNearestGridCells(
   const GridData& gridData,

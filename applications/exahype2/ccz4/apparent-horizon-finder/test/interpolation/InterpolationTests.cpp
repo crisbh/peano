@@ -1,9 +1,11 @@
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <numbers>
+#include <random>
 #include <string>
 
 #include "../..//apparent-horizon-finder.h"
@@ -248,6 +250,97 @@ void testFindNearestGridCells() {
 
   std::cout << "Brute-force neighbour search returns sorted deterministic cell indices"
             << std::endl;
+}
+
+void testAcceleratedNeighbourSearchMatchesBruteForce() {
+  std::mt19937_64 generator(4815162342ULL);
+  std::uniform_real_distribution<double> coordinate(-5.0, 5.0);
+  GridData randomGrid;
+  randomGrid.coordinates.resize(2000);
+  for (GridCoordinate& point : randomGrid.coordinates) {
+    point = {coordinate(generator), coordinate(generator), coordinate(generator)};
+  }
+  const CartesianSpatialIndex randomIndex(randomGrid);
+  for (std::size_t query = 0; query < 30; ++query) {
+    const GridCoordinate target{
+      coordinate(generator), coordinate(generator), coordinate(generator)};
+    for (std::size_t k : {
+           std::size_t{1}, std::size_t{2}, std::size_t{5},
+           std::size_t{16}, std::size_t{64}}) {
+      assert(FindNearestGridCells(randomIndex, target, k)
+             == FindNearestGridCellsBruteForce(randomGrid, target, k));
+    }
+  }
+
+  GridData structured;
+  for (int z = -2; z <= 2; ++z) {
+    for (int y = -2; y <= 2; ++y) {
+      for (int x = -2; x <= 2; ++x) {
+        structured.coordinates.push_back(
+          {static_cast<double>(x), static_cast<double>(y), static_cast<double>(z)});
+      }
+    }
+  }
+  const CartesianSpatialIndex structuredIndex(structured);
+  for (const GridCoordinate target : {
+         GridCoordinate{0.0, 0.0, 0.0},
+         GridCoordinate{0.5, 0.5, 0.5},
+         GridCoordinate{1.0, -1.0, 2.0}}) {
+    for (std::size_t k : {
+           std::size_t{1}, std::size_t{4}, std::size_t{12},
+           structured.coordinates.size()}) {
+      assert(FindNearestGridCells(structuredIndex, target, k)
+             == FindNearestGridCellsBruteForce(structured, target, k));
+    }
+  }
+
+  // The origin is an exact hit; the six axis neighbours then tie by cell index.
+  const auto exact = FindNearestGridCells(structuredIndex, {0.0, 0.0, 0.0}, 7);
+  const auto exactReference =
+    FindNearestGridCellsBruteForce(structured, {0.0, 0.0, 0.0}, 7);
+  assert(exact == exactReference);
+  assert(structured.coordinates[exact.front()].x == 0.0);
+  assert(structured.coordinates[exact.front()].y == 0.0);
+  assert(structured.coordinates[exact.front()].z == 0.0);
+
+  std::cout << "K-d tree matches brute force for random, structured, exact, and tied queries"
+            << std::endl;
+}
+
+void reportNeighbourSearchPerformance() {
+  std::mt19937_64 generator(8675309ULL);
+  std::uniform_real_distribution<double> coordinate(-10.0, 10.0);
+  GridData gridData;
+  gridData.coordinates.resize(20000);
+  for (GridCoordinate& point : gridData.coordinates) {
+    point = {coordinate(generator), coordinate(generator), coordinate(generator)};
+  }
+  std::vector<GridCoordinate> targets(50);
+  for (GridCoordinate& target : targets) {
+    target = {coordinate(generator), coordinate(generator), coordinate(generator)};
+  }
+
+  const auto buildStart = std::chrono::steady_clock::now();
+  const CartesianSpatialIndex spatialIndex(gridData);
+  const auto buildEnd = std::chrono::steady_clock::now();
+  const auto acceleratedStart = std::chrono::steady_clock::now();
+  for (const GridCoordinate& target : targets) {
+    (void)FindNearestGridCells(spatialIndex, target, 8);
+  }
+  const auto acceleratedEnd = std::chrono::steady_clock::now();
+  const auto bruteStart = std::chrono::steady_clock::now();
+  for (const GridCoordinate& target : targets) {
+    (void)FindNearestGridCellsBruteForce(gridData, target, 8);
+  }
+  const auto bruteEnd = std::chrono::steady_clock::now();
+
+  const auto microseconds = [](auto start, auto end) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+  };
+  std::cout << "Neighbour-search timing (informational only): build="
+            << microseconds(buildStart, buildEnd) << " us, k-d queries="
+            << microseconds(acceleratedStart, acceleratedEnd) << " us, brute queries="
+            << microseconds(bruteStart, bruteEnd) << " us" << std::endl;
 }
 
 void testInvalidNearestGridCellInputs() {
@@ -958,6 +1051,8 @@ int main() {
   testAnalyticCoordinateGeometry();
   testAnalyticCoordinateDerivativesAgainstFiniteDifferences();
   testFindNearestGridCells();
+  testAcceleratedNeighbourSearchMatchesBruteForce();
+  reportNeighbourSearchPerformance();
   testInvalidNearestGridCellInputs();
   testFitLinearPolynomialExactReproduction();
   testFitLinearPolynomialInvalidStencils();

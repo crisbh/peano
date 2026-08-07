@@ -4,6 +4,7 @@
 #include <array>
 #include <limits>
 #include <numeric>
+#include <queue>
 #include <sstream>
 
 namespace exahype2::ccz4::ahf {
@@ -159,22 +160,22 @@ AnalyticCoordinateGeometry ComputeAnalyticCoordinateGeometry(
   return result;
 }
 
-std::vector<std::size_t> FindNearestGridCells(
+std::vector<std::size_t> FindNearestGridCellsBruteForce(
   const GridData& gridData,
   const GridCoordinate& target,
   std::size_t neighbourCount
 ) {
   if (gridData.coordinates.empty()) {
     throw std::invalid_argument(
-      "FindNearestGridCells: cannot search an empty Cartesian grid");
+      "FindNearestGridCellsBruteForce: cannot search an empty Cartesian grid");
   }
   if (neighbourCount == 0) {
     throw std::invalid_argument(
-      "FindNearestGridCells: neighbour count must be greater than zero");
+      "FindNearestGridCellsBruteForce: neighbour count must be greater than zero");
   }
   if (neighbourCount > gridData.coordinates.size()) {
     throw std::invalid_argument(
-      "FindNearestGridCells: requested " + std::to_string(neighbourCount)
+      "FindNearestGridCellsBruteForce: requested " + std::to_string(neighbourCount)
       + " neighbours from only " + std::to_string(gridData.coordinates.size())
       + " cells");
   }
@@ -182,7 +183,7 @@ std::vector<std::size_t> FindNearestGridCells(
       || !std::isfinite(target.y)
       || !std::isfinite(target.z)) {
     throw std::invalid_argument(
-      "FindNearestGridCells: target coordinate must be finite");
+      "FindNearestGridCellsBruteForce: target coordinate must be finite");
   }
 
   std::vector<std::size_t> indices(gridData.coordinates.size());
@@ -210,6 +211,179 @@ std::vector<std::size_t> FindNearestGridCells(
   );
   indices.resize(neighbourCount);
   return indices;
+}
+
+struct CartesianSpatialIndex::Implementation {
+  // 1. Store one grid cell and the links/splitting axis of its k-d tree node.
+  struct Node {
+    std::size_t cellIndex = 0;
+    std::size_t left = std::numeric_limits<std::size_t>::max();
+    std::size_t right = std::numeric_limits<std::size_t>::max();
+    unsigned char axis = 0;
+  };
+
+  static constexpr std::size_t NoNode = std::numeric_limits<std::size_t>::max();
+
+  // 2. Validate and copy coordinates, then build the immutable tree once.
+  explicit Implementation(const GridData& gridData): coordinates(gridData.coordinates) {
+    if (coordinates.empty()) {
+      throw std::invalid_argument("CartesianSpatialIndex: cannot search an empty grid");
+    }
+    for (const GridCoordinate& coordinate : coordinates) {
+      if (!std::isfinite(coordinate.x) || !std::isfinite(coordinate.y)
+          || !std::isfinite(coordinate.z)) {
+        throw std::invalid_argument("CartesianSpatialIndex: coordinates must be finite");
+      }
+    }
+    std::vector<std::size_t> indices(coordinates.size());
+    std::iota(indices.begin(), indices.end(), std::size_t{0});
+    nodes.reserve(coordinates.size());
+    root = build(indices, 0, indices.size(), 0);
+  }
+
+  // Read one Cartesian component selected by axis=(x,y,z).
+  double component(std::size_t cellIndex, std::size_t axis) const {
+    const GridCoordinate& coordinate = coordinates[cellIndex];
+    return axis == 0 ? coordinate.x : axis == 1 ? coordinate.y : coordinate.z;
+  }
+
+  // 3. Recursively median-split the cells, cycling through x, y, and z.
+  std::size_t build(
+    std::vector<std::size_t>& indices,
+    std::size_t begin,
+    std::size_t end,
+    std::size_t depth
+  ) {
+    if (begin == end) {
+      return NoNode;
+    }
+    const std::size_t axis = depth % 3;
+    const std::size_t middle = begin + (end - begin) / 2;
+    std::nth_element(
+      indices.begin() + begin,
+      indices.begin() + middle,
+      indices.begin() + end,
+      [this, axis](std::size_t first, std::size_t second) {
+        const double firstCoordinate = component(first, axis);
+        const double secondCoordinate = component(second, axis);
+        return firstCoordinate < secondCoordinate
+            || (firstCoordinate == secondCoordinate && first < second);
+      }
+    );
+    const std::size_t nodeIndex = nodes.size();
+    nodes.push_back(Node{.cellIndex = indices[middle], .axis = static_cast<unsigned char>(axis)});
+    const std::size_t left = build(indices, begin, middle, depth + 1);
+    const std::size_t right = build(indices, middle + 1, end, depth + 1);
+    nodes[nodeIndex].left = left;
+    nodes[nodeIndex].right = right;
+    return nodeIndex;
+  }
+
+  // 4. Compare candidates without an unnecessary square root.
+  double squaredDistance(std::size_t cellIndex, const GridCoordinate& target) const {
+    const GridCoordinate& coordinate = coordinates[cellIndex];
+    const double dx = coordinate.x - target.x;
+    const double dy = coordinate.y - target.y;
+    const double dz = coordinate.z - target.z;
+    return dx * dx + dy * dy + dz * dz;
+  }
+
+  using Candidate = std::pair<double, std::size_t>;
+  using CandidateHeap = std::priority_queue<Candidate>;
+
+  // 5. Search the near branch first and prune the far branch when possible.
+  void query(
+    std::size_t nodeIndex,
+    const GridCoordinate& target,
+    std::size_t neighbourCount,
+    CandidateHeap& candidates
+  ) const {
+    if (nodeIndex == NoNode) {
+      return;
+    }
+    const Node& node = nodes[nodeIndex];
+    const Candidate candidate{squaredDistance(node.cellIndex, target), node.cellIndex};
+    if (candidates.size() < neighbourCount) {
+      candidates.push(candidate);
+    } else if (candidate < candidates.top()) {
+      candidates.pop();
+      candidates.push(candidate);
+    }
+
+    const double targetComponent = node.axis == 0 ? target.x
+      : node.axis == 1 ? target.y : target.z;
+    const double difference = targetComponent - component(node.cellIndex, node.axis);
+    const std::size_t nearChild = difference <= 0.0 ? node.left : node.right;
+    const std::size_t farChild = difference <= 0.0 ? node.right : node.left;
+    query(nearChild, target, neighbourCount, candidates);
+    const double worstDistance = candidates.size() < neighbourCount
+      ? std::numeric_limits<double>::infinity() : candidates.top().first;
+    if (difference * difference <= worstDistance) {
+      query(farChild, target, neighbourCount, candidates);
+    }
+  }
+
+  // Immutable storage shared by all read-only queries.
+  std::vector<GridCoordinate> coordinates;
+  std::vector<Node> nodes;
+  std::size_t root = NoNode;
+};
+
+CartesianSpatialIndex::CartesianSpatialIndex(const GridData& gridData):
+  _implementation(std::make_shared<const Implementation>(gridData)) {}
+
+std::size_t CartesianSpatialIndex::size() const {
+  return _implementation->coordinates.size();
+}
+
+std::vector<std::size_t> CartesianSpatialIndex::findNearest(
+  const GridCoordinate& target,
+  std::size_t neighbourCount
+) const {
+  if (!std::isfinite(target.x) || !std::isfinite(target.y)
+      || !std::isfinite(target.z)) {
+    throw std::invalid_argument("CartesianSpatialIndex: target must be finite");
+  }
+  if (neighbourCount == 0) {
+    throw std::invalid_argument(
+      "CartesianSpatialIndex: neighbour count must be greater than zero");
+  }
+  if (neighbourCount > size()) {
+    throw std::invalid_argument(
+      "CartesianSpatialIndex: requested " + std::to_string(neighbourCount)
+      + " neighbours from only " + std::to_string(size()) + " cells");
+  }
+  Implementation::CandidateHeap candidates;
+  _implementation->query(_implementation->root, target, neighbourCount, candidates);
+  std::vector<Implementation::Candidate> ordered;
+  ordered.reserve(candidates.size());
+  while (!candidates.empty()) {
+    ordered.push_back(candidates.top());
+    candidates.pop();
+  }
+  std::sort(ordered.begin(), ordered.end());
+  std::vector<std::size_t> indices;
+  indices.reserve(ordered.size());
+  for (const auto& candidate : ordered) {
+    indices.push_back(candidate.second);
+  }
+  return indices;
+}
+
+std::vector<std::size_t> FindNearestGridCells(
+  const CartesianSpatialIndex& spatialIndex,
+  const GridCoordinate& target,
+  std::size_t neighbourCount
+) {
+  return spatialIndex.findNearest(target, neighbourCount);
+}
+
+std::vector<std::size_t> FindNearestGridCells(
+  const GridData& gridData,
+  const GridCoordinate& target,
+  std::size_t neighbourCount
+) {
+  return CartesianSpatialIndex(gridData).findNearest(target, neighbourCount);
 }
 
 LinearPolynomialFit FitLinearPolynomial(
@@ -635,6 +809,8 @@ void InterpolateCartesianToSurface(
     domainMaximum.y - domainMinimum.y,
     domainMaximum.z - domainMinimum.z
   );
+  // Build once; all surface-point queries below are immutable and thread-safe.
+  const CartesianSpatialIndex spatialIndex(gridData);
 
   std::vector<InterpolatedSurfacePoint> points;
   points.reserve(ahGuess.points.size());
@@ -691,7 +867,7 @@ void InterpolateCartesianToSurface(
       }
 
       std::vector<std::size_t> neighbours = FindNearestGridCells(
-        gridData, target, useNearestNeighbour ? 1 : options.numberOfNeighbours);
+        spatialIndex, target, useNearestNeighbour ? 1 : options.numberOfNeighbours);
 
       const auto validateStencilValues = [&gridData](std::span<const std::size_t> stencil) {
         for (std::size_t cellIndex : stencil) {
@@ -737,7 +913,7 @@ void InterpolateCartesianToSurface(
           if (!rankFailure || !options.allowOrderReduction) {
             throw;
           }
-          neighbours = FindNearestGridCells(gridData, target, 1);
+          neighbours = FindNearestGridCells(spatialIndex, target, 1);
           validateStencilValues(neighbours);
           const auto row = gridData.cell(neighbours.front()).row();
           std::copy(row.begin(), row.end(), compactValues.begin());
