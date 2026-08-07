@@ -96,6 +96,11 @@ if(ENABLE_CCZ4_AHF_TESTS)
   target_link_libraries(ahf-interpolation-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-interpolation-tests COMMAND ahf-interpolation-tests)
 
+  add_executable(ahf-ssbh-integration-tests test/integration/SSBHInterpolationTests.cpp)
+  target_link_libraries(ahf-ssbh-integration-tests PRIVATE ApparentHorizonFinderPostprocess)
+  add_test(NAME ahf-ssbh-integration-tests COMMAND ahf-ssbh-integration-tests)
+  set_tests_properties(ahf-ssbh-integration-tests PROPERTIES LABELS integration)
+
   add_executable(ahf-assemble-matrix-tests test/assemble-matrix/AssembleMatrixTests.cpp)
   target_link_libraries(ahf-assemble-matrix-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-assemble-matrix-tests COMMAND ahf-assemble-matrix-tests)
