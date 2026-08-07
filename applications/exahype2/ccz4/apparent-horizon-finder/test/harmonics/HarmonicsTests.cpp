@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <numbers>
 #include <random>
 #include <vector>
 
@@ -10,8 +11,6 @@
 namespace exahype2::ccz4::ahf::tests::harmonics {
 
 namespace {
-
-constexpr double kPi = 3.14159265358979323846;
 
 bool approxEqual(double a, double b, double tol) {
   return std::abs(a - b) <= tol;
@@ -87,7 +86,7 @@ void testSphereCoefficients() {
   const double radius = 1.7;
   const std::vector<double> a = SphereCoefficients(basis, radius);
 
-  assert(approxEqual(a[0], radius * std::sqrt(4.0 * kPi), 1.0e-13));
+  assert(approxEqual(a[0], radius * std::sqrt(4.0 * std::numbers::pi), 1.0e-13));
   for (std::size_t j = 1; j < basis.nModes; ++j) {
     assert(a[j] == 0.0);
   }

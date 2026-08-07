@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <numbers>
 #include <vector>
 
 #include "../../apparent-horizon-finder.h"
@@ -145,7 +146,6 @@ void testMetricInverse() {
 // Theta = 2/r everywhere (a constant field), so the only non-zero coefficient is
 // the monopole a_00 = (2/r) sqrt(4 pi); all higher modes must vanish.
 void testAssembleGlobalMatrixSpectralResidual() {
-  constexpr double kPi = 3.14159265358979323846;
   const double r = 1.3;
   const SpectralBasis basis = BuildSpectralBasis(4);
 
@@ -172,7 +172,7 @@ void testAssembleGlobalMatrixSpectralResidual() {
   AssembleGlobalMatrix(surface, basis, matrixCoefficients, residuals);
 
   assert(residuals.size() == basis.nModes);
-  assert(approxEqual(residuals[0], (2.0 / r) * std::sqrt(4.0 * kPi), 1.0e-11));
+  assert(approxEqual(residuals[0], (2.0 / r) * std::sqrt(4.0 * std::numbers::pi), 1.0e-11));
   for (std::size_t j = 1; j < basis.nModes; ++j) {
     assert(approxEqual(residuals[j], 0.0, 1.0e-11));
   }

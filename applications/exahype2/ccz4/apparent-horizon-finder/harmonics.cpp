@@ -1,6 +1,7 @@
 #include "harmonics.h"
 
 #include <cmath>
+#include <numbers>
 
 // Conventions:
 //  - Azimuth phi = rho.
@@ -11,8 +12,6 @@
 namespace exahype2::ccz4::ahf {
 
 namespace {
-
-constexpr double kPi = 3.14159265358979323846;
 
 /**
  * Normalisation making the real Y_lm orthonormal on the unit sphere.
@@ -28,7 +27,7 @@ double Normalization(int l, int m) {
   for (int k = l - am + 1; k <= l + am; ++k) {
     ratio /= static_cast<double>(k);
   }
-  const double base = std::sqrt((2.0 * l + 1.0) / (4.0 * kPi) * ratio);
+  const double base = std::sqrt((2.0 * l + 1.0) / (4.0 * std::numbers::pi) * ratio);
   return (m == 0) ? base : base * std::sqrt(2.0);
 }
 
@@ -133,7 +132,7 @@ std::pair<std::vector<double>, std::vector<double>> GaussLegendre(int n) {
   // the Legendre polynomial P_n, evaluated by its three-term recurrence.
   const int halfCount = (n + 1) / 2;
   for (int i = 0; i < halfCount; ++i) {
-    double z = std::cos(kPi * (i + 0.75) / (n + 0.5));
+    double z = std::cos(std::numbers::pi * (i + 0.75) / (n + 0.5));
     double z1 = 0.0;
     double pp = 0.0;
     do {
@@ -200,7 +199,7 @@ SpectralBasis BuildSpectralBasis(int lmax, int nSigma, int nRho) {
   }
 
   const auto [muNodes, muWeights] = GaussLegendre(nSigma);
-  const double dRho = 2.0 * kPi / nRho;
+  const double dRho = 2.0 * std::numbers::pi / nRho;
 
   SpectralBasis basis;
   basis.lmax = lmax;
@@ -300,7 +299,7 @@ std::vector<double> Project(const SpectralBasis& basis,
 std::vector<double> SphereCoefficients(const SpectralBasis& basis, double radius) {
   std::vector<double> coefficients(basis.nModes, 0.0);
   // Y_00 = 1/sqrt(4 pi)  =>  a_00 = radius * sqrt(4 pi).
-  coefficients[0] = radius * std::sqrt(4.0 * kPi);
+  coefficients[0] = radius * std::sqrt(4.0 * std::numbers::pi);
   return coefficients;
 }
 
