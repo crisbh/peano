@@ -12,6 +12,8 @@
 #include "harmonics.h"
 #include "expansion.h"
 #include "assemble-matrix.h"
+#include "dense-linear-algebra.h"
+#include "spectral-solver.h"
 #include "iteration.h"
 
 #endif  // APPARENT_HORIZON_FINDER_H_

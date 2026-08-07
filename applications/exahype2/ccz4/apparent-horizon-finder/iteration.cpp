@@ -32,6 +32,21 @@ void SolvePDEforAH(const AHGuess& initialAHGuess,
   //    resolution here, and if we still fail when the limit is reached, we stop and switch to step 2.
   // 2. This initial guess is wrong (including reference point choice and/or initial guess on $h$),
   //    so we move to the next set of initial guess.
+  //
+  // Spectral solver wiring (see spectral-solver.h). Per reference point / mass:
+  //   1. build the basis:  const SpectralBasis basis = BuildSpectralBasis(lmax);
+  //   2. initial coefficients from the guess sphere:  SphereCoefficients(basis, r0);
+  //   3. residual R(a): synthesise h = Synthesize(basis, a).h, set AHGuess radii to
+  //      h, InterpolateFromShellToSurface(shell, guess, s0, surface), then
+  //      AssembleGlobalMatrix(surface, basis, matrixCoefficients, residuals) -> R;
+  //   4. SolveSpectralNewton(basis, residual, initialCoefficients, {.massScale = mass})
+  //      runs the damped Newton (dense FD Jacobian, LU, line search, runaway guard);
+  //   5. write the converged radii Synthesize(basis, result.coefficients).h back into
+  //      solvedAHGuess.
+  // Completing this function additionally needs (a) the shell/surface interpolation
+  // (InterpolateFromShellToSurface) so the residual sees real geometry, 
+  // and (b) a grid/geometry source plus the basis resolution, which are
+  // not in this function's current signature.
 }
 
 void CheckCommonHorizonOfBBH(const AHGuess& initialAHGuess,
