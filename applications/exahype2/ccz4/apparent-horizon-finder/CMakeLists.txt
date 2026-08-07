@@ -12,6 +12,7 @@ endif()
 set(AHF_CORE_SOURCES
   output.cpp
   interpolation.cpp
+  surface-geometry.cpp
   harmonics.cpp
   expansion.cpp
   assemble-matrix.cpp
@@ -25,6 +26,7 @@ set(AHF_CORE_HEADERS
   peano-input.h
   output.h
   interpolation.h
+  surface-geometry.h
   tensor-algebra.h
   harmonics.h
   expansion.h
@@ -100,6 +102,10 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-interpolation-tests test/interpolation/InterpolationTests.cpp)
   target_link_libraries(ahf-interpolation-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-interpolation-tests COMMAND ahf-interpolation-tests)
+
+  add_executable(ahf-surface-geometry-tests test/surface-geometry/SurfaceGeometryTests.cpp)
+  target_link_libraries(ahf-surface-geometry-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-surface-geometry-tests COMMAND ahf-surface-geometry-tests)
 
   add_executable(ahf-ssbh-integration-tests test/integration/SSBHInterpolationTests.cpp)
   target_link_libraries(ahf-ssbh-integration-tests PRIVATE ApparentHorizonFinderPostprocess)

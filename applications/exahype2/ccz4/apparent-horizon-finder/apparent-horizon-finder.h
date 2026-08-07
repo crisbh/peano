@@ -8,6 +8,7 @@
 #include "peano-input.h"
 #include "output.h"
 #include "interpolation.h"
+#include "surface-geometry.h"
 #include "tensor-algebra.h"
 #include "harmonics.h"
 #include "expansion.h"
