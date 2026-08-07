@@ -617,6 +617,127 @@ void testConfigurablePolynomialBasisAndReproduction() {
             << std::endl;
 }
 
+struct ConvergenceErrors {
+  double meshWidth = 0.0;
+  double valueLInfinity = 0.0;
+  double gradientLInfinity = 0.0;
+};
+
+double smoothConvergenceField(const GridCoordinate& point) {
+  return std::sin(0.7 * point.x) + std::exp(0.3 * point.y)
+       + 0.2 * point.x * point.z + 0.1 * point.y * point.z * point.z;
+}
+
+Vector3 smoothConvergenceGradient(const GridCoordinate& point) {
+  return {
+    0.7 * std::cos(0.7 * point.x) + 0.2 * point.z,
+    0.3 * std::exp(0.3 * point.y) + 0.1 * point.z * point.z,
+    0.2 * point.x + 0.2 * point.y * point.z
+  };
+}
+
+ConvergenceErrors measurePolynomialConvergenceLevel(
+  std::size_t cellsPerDirection,
+  std::size_t degree,
+  std::span<const GridCoordinate> targets
+) {
+  const double meshWidth = 2.0 / static_cast<double>(cellsPerDirection);
+  std::vector<GridCoordinate> coordinates;
+  std::vector<double> values;
+  coordinates.reserve(cellsPerDirection * cellsPerDirection * cellsPerDirection);
+  values.reserve(coordinates.capacity());
+  for (std::size_t ix = 0; ix < cellsPerDirection; ++ix) {
+    for (std::size_t iy = 0; iy < cellsPerDirection; ++iy) {
+      for (std::size_t iz = 0; iz < cellsPerDirection; ++iz) {
+        const GridCoordinate cellCentre{
+          -1.0 + (static_cast<double>(ix) + 0.5) * meshWidth,
+          -1.0 + (static_cast<double>(iy) + 0.5) * meshWidth,
+          -1.0 + (static_cast<double>(iz) + 0.5) * meshWidth
+        };
+        coordinates.push_back(cellCentre);
+        values.push_back(smoothConvergenceField(cellCentre));
+      }
+    }
+  }
+
+  GridData searchGrid;
+  searchGrid.coordinates = coordinates;
+  const std::size_t stencilSize = 3 * PolynomialBasisSize(degree);
+  ConvergenceErrors errors{.meshWidth = meshWidth};
+  for (const GridCoordinate& target : targets) {
+    // Use a local overdetermined stencil; targets are fixed grid-face/edge
+    // locations and therefore never coincide with these cell centres.
+    const std::vector<std::size_t> neighbours =
+      FindNearestGridCellsBruteForce(searchGrid, target, stencilSize);
+    std::vector<GridCoordinate> stencilCoordinates;
+    std::vector<double> stencilValues;
+    stencilCoordinates.reserve(stencilSize);
+    stencilValues.reserve(stencilSize);
+    for (std::size_t cell : neighbours) {
+      stencilCoordinates.push_back(coordinates[cell]);
+      stencilValues.push_back(values[cell]);
+    }
+    const LinearPolynomialFit fit = FitLinearPolynomial(
+      stencilCoordinates,
+      stencilValues,
+      target,
+      {.method = LinearReconstructionMethod::WeightedMovingLeastSquares,
+       .polynomialDegree = degree,
+       .weightSupport = 1.0}
+    );
+    errors.valueLInfinity = std::max(
+      errors.valueLInfinity,
+      std::abs(fit.value - smoothConvergenceField(target)));
+    const Vector3 exactGradient = smoothConvergenceGradient(target);
+    for (std::size_t direction = 0; direction < 3; ++direction) {
+      errors.gradientLInfinity = std::max(
+        errors.gradientLInfinity,
+        std::abs(fit.derivative[direction] - exactGradient[direction]));
+    }
+  }
+  return errors;
+}
+
+double observedOrder(double coarseError, double fineError,
+                     double coarseWidth, double fineWidth) {
+  return std::log(coarseError / fineError) / std::log(coarseWidth / fineWidth);
+}
+
+void testPolynomialInterpolationConvergence() {
+  const std::array<GridCoordinate, 4> targets{{
+    {0.0, 0.0, 0.0},
+    {0.5, -0.5, 0.25},
+    {-0.5, 0.25, -0.25},
+    {0.25, 0.5, -0.5}
+  }};
+  const std::array<std::size_t, 3> refinements{8, 16, 32};
+
+  // For smooth fields, degree-p value interpolation nominally approaches
+  // order p+1, while its first derivatives nominally approach order p.
+  // Only the two finest levels are asserted to avoid coarse-grid transients.
+  for (std::size_t degree = 1; degree <= 3; ++degree) {
+    std::array<ConvergenceErrors, 3> errors{};
+    for (std::size_t level = 0; level < refinements.size(); ++level) {
+      errors[level] = measurePolynomialConvergenceLevel(
+        refinements[level], degree, targets);
+    }
+    const double valueOrder = observedOrder(
+      errors[1].valueLInfinity, errors[2].valueLInfinity,
+      errors[1].meshWidth, errors[2].meshWidth);
+    const double gradientOrder = observedOrder(
+      errors[1].gradientLInfinity, errors[2].gradientLInfinity,
+      errors[1].meshWidth, errors[2].meshWidth);
+    std::cout << "Degree " << degree << " convergence: value L-inf="
+              << errors[2].valueLInfinity << " order=" << valueOrder
+              << ", gradient L-inf=" << errors[2].gradientLInfinity
+              << " order=" << gradientOrder << std::endl;
+    assert(errors[2].valueLInfinity < errors[1].valueLInfinity);
+    assert(errors[2].gradientLInfinity < errors[1].gradientLInfinity);
+    assert(valueOrder > static_cast<double>(degree) + 0.25);
+    assert(gradientOrder > static_cast<double>(degree) - 0.35);
+  }
+}
+
 void testWeightedLinearPolynomialReconstruction() {
   const std::vector<GridCoordinate> irregular{
     {-2.1, 0.3, 1.7}, {0.2, -1.4, 0.1}, {3.0, 2.2, -0.8},
@@ -1222,6 +1343,7 @@ int main() {
   testFitLinearPolynomialExactReproduction();
   testFitLinearPolynomialInvalidStencils();
   testConfigurablePolynomialBasisAndReproduction();
+  testPolynomialInterpolationConvergence();
   testWeightedLinearPolynomialReconstruction();
   testWeightedFitFavoursNearbySamples();
   testWeightedLinearPolynomialFailures();
