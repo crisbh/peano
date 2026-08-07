@@ -5,6 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <numbers>
+#include <numeric>
 #include <random>
 #include <string>
 
@@ -452,6 +453,170 @@ void testFitLinearPolynomialInvalidStencils() {
   );
 }
 
+double evaluatePolynomial(
+  const PolynomialBasis& basis,
+  std::span<const double> coefficients,
+  const GridCoordinate& coordinate
+) {
+  double value = 0.0;
+  for (std::size_t term = 0; term < basis.terms.size(); ++term) {
+    const PolynomialExponent& exponent = basis.terms[term];
+    value += coefficients[term]
+      * std::pow(coordinate.x, static_cast<int>(exponent.x))
+      * std::pow(coordinate.y, static_cast<int>(exponent.y))
+      * std::pow(coordinate.z, static_cast<int>(exponent.z));
+  }
+  return value;
+}
+
+Vector3 evaluatePolynomialGradient(
+  const PolynomialBasis& basis,
+  std::span<const double> coefficients,
+  const GridCoordinate& coordinate
+) {
+  Vector3 gradient{};
+  for (std::size_t term = 0; term < basis.terms.size(); ++term) {
+    const std::array<std::size_t, 3> exponent{
+      basis.terms[term].x, basis.terms[term].y, basis.terms[term].z};
+    const std::array<double, 3> position{coordinate.x, coordinate.y, coordinate.z};
+    for (std::size_t direction = 0; direction < 3; ++direction) {
+      if (exponent[direction] == 0) continue;
+      double derivative = coefficients[term] * static_cast<double>(exponent[direction]);
+      for (std::size_t axis = 0; axis < 3; ++axis) {
+        const std::size_t power = exponent[axis] - (axis == direction ? 1 : 0);
+        derivative *= std::pow(position[axis], static_cast<int>(power));
+      }
+      gradient[direction] += derivative;
+    }
+  }
+  return gradient;
+}
+
+void testConfigurablePolynomialBasisAndReproduction() {
+  const std::array<std::size_t, 6> expectedSizes{1, 4, 10, 20, 35, 56};
+  for (std::size_t degree = 0; degree < expectedSizes.size(); ++degree) {
+    const PolynomialBasis basis = GeneratePolynomialBasis(degree);
+    assert(PolynomialBasisSize(degree) == expectedSizes[degree]);
+    assert(basis.terms.size() == expectedSizes[degree]);
+    assert((basis.terms.front() == PolynomialExponent{0, 0, 0}));
+    for (std::size_t first = 0; first < basis.terms.size(); ++first) {
+      const auto& exponent = basis.terms[first];
+      assert(exponent.x + exponent.y + exponent.z <= degree);
+      for (std::size_t second = first + 1; second < basis.terms.size(); ++second) {
+        assert(!(exponent == basis.terms[second]));
+      }
+    }
+    if (degree == 0) {
+      assert(basis.linearX == PolynomialBasis::NoTerm);
+      assert(basis.linearY == PolynomialBasis::NoTerm);
+      assert(basis.linearZ == PolynomialBasis::NoTerm);
+    } else {
+      assert((basis.terms[basis.linearX] == PolynomialExponent{1, 0, 0}));
+      assert((basis.terms[basis.linearY] == PolynomialExponent{0, 1, 0}));
+      assert((basis.terms[basis.linearZ] == PolynomialExponent{0, 0, 1}));
+    }
+  }
+
+  std::vector<GridCoordinate> samples;
+  for (double x : {-1.5, -0.5, 0.5, 1.5}) {
+    for (double y : {-1.4, -0.3, 0.7, 1.6}) {
+      for (double z : {-1.3, -0.2, 0.8, 1.7}) {
+        samples.push_back({x, y, z});
+      }
+    }
+  }
+  const GridCoordinate target{0.2, -0.3, 0.4};
+  for (std::size_t degree = 0; degree <= 3; ++degree) {
+    const PolynomialBasis basis = GeneratePolynomialBasis(degree);
+    std::vector<double> coefficients(basis.terms.size());
+    for (std::size_t term = 0; term < coefficients.size(); ++term) {
+      coefficients[term] = (term % 2 == 0 ? 1.0 : -1.0)
+                         * 0.07 * static_cast<double>(term + 1);
+    }
+    std::vector<double> values;
+    values.reserve(samples.size());
+    for (const GridCoordinate& sample : samples) {
+      values.push_back(evaluatePolynomial(basis, coefficients, sample));
+    }
+    const LinearPolynomialFit fit = FitLinearPolynomial(
+      samples,
+      values,
+      target,
+      {.method = LinearReconstructionMethod::Unweighted,
+       .polynomialDegree = degree}
+    );
+    const double expectedValue = evaluatePolynomial(basis, coefficients, target);
+    const Vector3 expectedGradient =
+      evaluatePolynomialGradient(basis, coefficients, target);
+    assert(std::abs(fit.value - expectedValue) < 1.0e-9);
+    for (std::size_t direction = 0; direction < 3; ++direction) {
+      assert(std::abs(fit.derivative[direction] - expectedGradient[direction]) < 1.0e-8);
+    }
+  }
+
+  const PolynomialBasis quadraticBasis = GeneratePolynomialBasis(2);
+  std::vector<double> quadraticCoefficients(quadraticBasis.terms.size(), 1.0);
+  std::vector<double> insufficientValues;
+  for (std::size_t sample = 0; sample < 9; ++sample) {
+    insufficientValues.push_back(
+      evaluatePolynomial(quadraticBasis, quadraticCoefficients, samples[sample]));
+  }
+  bool insufficientRejected = false;
+  try {
+    (void)FitLinearPolynomial(
+      std::span<const GridCoordinate>(samples).first(9),
+      insufficientValues,
+      target,
+      {.polynomialDegree = 2}
+    );
+  } catch (const std::invalid_argument& error) {
+    insufficientRejected = std::string(error.what()).find("at least 10") != std::string::npos;
+  }
+  assert(insufficientRejected);
+
+  // The shared fourteen-right-hand-side path uses the same quadratic basis.
+  GridData compactGrid;
+  compactGrid.coordinates = samples;
+  compactGrid.resize(samples.size());
+  std::vector<std::size_t> compactIndices(samples.size());
+  std::iota(compactIndices.begin(), compactIndices.end(), std::size_t{0});
+  std::array<std::vector<double>, NumberOfCompactFields> compactCoefficients;
+  for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+    compactCoefficients[field].resize(quadraticBasis.terms.size());
+    for (std::size_t term = 0; term < quadraticBasis.terms.size(); ++term) {
+      compactCoefficients[field][term] = 0.01 * static_cast<double>(field + 1)
+        * static_cast<double>(term + 1) * (term % 2 == 0 ? 1.0 : -1.0);
+    }
+  }
+  for (std::size_t cell = 0; cell < samples.size(); ++cell) {
+    for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+      compactGrid.values[cell * GridData::numberOfVariables + field] =
+        evaluatePolynomial(quadraticBasis, compactCoefficients[field], samples[cell]);
+    }
+  }
+  const CompactLinearFit compactFit = FitCompactLinearPolynomial(
+    compactGrid,
+    compactIndices,
+    target,
+    {.polynomialDegree = 2}
+  );
+  assert(compactFit.polynomialDegree == 2);
+  assert(compactFit.rank == PolynomialBasisSize(2));
+  for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+    assert(std::abs(compactFit.values[field]
+                    - evaluatePolynomial(
+                      quadraticBasis, compactCoefficients[field], target)) < 1.0e-9);
+    const Vector3 expected = evaluatePolynomialGradient(
+      quadraticBasis, compactCoefficients[field], target);
+    for (std::size_t direction = 0; direction < 3; ++direction) {
+      assert(std::abs(compactFit.gradients[field][direction] - expected[direction]) < 1.0e-8);
+    }
+  }
+
+  std::cout << "Programmatic total-degree bases reproduce polynomials through degree three"
+            << std::endl;
+}
+
 void testWeightedLinearPolynomialReconstruction() {
   const std::vector<GridCoordinate> irregular{
     {-2.1, 0.3, 1.7}, {0.2, -1.4, 0.1}, {3.0, 2.2, -0.8},
@@ -781,7 +946,7 @@ void testInterpolateCartesianToSurfaceDegree1() {
     ahGuess,
     Reference,
     mlsSurface,
-    {.method = CartesianToSurfaceMethod::WeightedDegree1,
+    {.method = CartesianToSurfaceMethod::WeightedPolynomial,
      .numberOfNeighbours = 8,
      .weightSupport = 0.8}
   );
@@ -864,7 +1029,7 @@ void testInterpolateCartesianToSurfaceContextualFailures() {
       {.points = {{.r = 1.0, .rho = 0.0, .sigma = 0.0}}},
       {0.0, 0.0, 0.0},
       surface,
-      {.method = CartesianToSurfaceMethod::UnweightedDegree1,
+      {.method = CartesianToSurfaceMethod::UnweightedPolynomial,
        .numberOfNeighbours = 4}
     );
   } catch (const std::runtime_error& error) {
@@ -935,7 +1100,7 @@ std::string interpolationFailure(
 
 void testInterpolationValidationAndDiagnostics() {
   const CartesianToSurfaceOptions degreeOne{
-    .method = CartesianToSurfaceMethod::UnweightedDegree1,
+    .method = CartesianToSurfaceMethod::UnweightedPolynomial,
     .numberOfNeighbours = 4
   };
 
@@ -967,7 +1132,7 @@ void testInterpolationValidationAndDiagnostics() {
   insufficient.coordinates.resize(3);
   insufficient.values.resize(3 * GridData::numberOfVariables);
   const CartesianToSurfaceOptions fallbackDisabled{
-    .method = CartesianToSurfaceMethod::WeightedDegree1,
+    .method = CartesianToSurfaceMethod::WeightedPolynomial,
     .numberOfNeighbours = 3,
     .allowOrderReduction = false
   };
@@ -982,13 +1147,13 @@ void testInterpolationValidationAndDiagnostics() {
     {.points = {{.r = 1.0, .rho = 0.0, .sigma = 0.0}}},
     {0.0, 0.0, 0.0},
     reducedSurface,
-    {.method = CartesianToSurfaceMethod::WeightedDegree1,
+    {.method = CartesianToSurfaceMethod::WeightedPolynomial,
      .numberOfNeighbours = 3,
      .allowOrderReduction = true}
   );
   const InterpolationDiagnostics& reduced =
     reducedSurface.points[0].interpolationDiagnostics;
-  assert(reduced.requestedMethod == CartesianToSurfaceMethod::WeightedDegree1);
+  assert(reduced.requestedMethod == CartesianToSurfaceMethod::WeightedPolynomial);
   assert(reduced.requestedDegree == 1);
   assert(reduced.degreeUsed == 0);
   assert(reduced.neighbourCount == 1);
@@ -1017,7 +1182,7 @@ void testInterpolationValidationAndDiagnostics() {
   );
   const InterpolationDiagnostics& successful =
     successfulSurface.points[0].interpolationDiagnostics;
-  assert(successful.requestedMethod == CartesianToSurfaceMethod::UnweightedDegree1);
+  assert(successful.requestedMethod == CartesianToSurfaceMethod::UnweightedPolynomial);
   assert(successful.requestedDegree == 1);
   assert(successful.degreeUsed == 1);
   assert(successful.neighbourCount == 4);
@@ -1056,6 +1221,7 @@ int main() {
   testInvalidNearestGridCellInputs();
   testFitLinearPolynomialExactReproduction();
   testFitLinearPolynomialInvalidStencils();
+  testConfigurablePolynomialBasisAndReproduction();
   testWeightedLinearPolynomialReconstruction();
   testWeightedFitFavoursNearbySamples();
   testWeightedLinearPolynomialFailures();

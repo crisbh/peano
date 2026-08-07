@@ -386,13 +386,211 @@ std::vector<std::size_t> FindNearestGridCells(
   return CartesianSpatialIndex(gridData).findNearest(target, neighbourCount);
 }
 
+std::size_t PolynomialBasisSize(std::size_t degree) {
+  return (degree + 1) * (degree + 2) * (degree + 3) / 6;
+}
+
+PolynomialBasis GeneratePolynomialBasis(std::size_t degree) {
+  PolynomialBasis basis;
+  basis.terms.reserve(PolynomialBasisSize(degree));
+  for (std::size_t totalDegree = 0; totalDegree <= degree; ++totalDegree) {
+    for (std::size_t xExponent = totalDegree;; --xExponent) {
+      const std::size_t remaining = totalDegree - xExponent;
+      for (std::size_t yExponent = remaining;; --yExponent) {
+        const PolynomialExponent exponent{
+          .x = xExponent,
+          .y = yExponent,
+          .z = remaining - yExponent
+        };
+        const std::size_t index = basis.terms.size();
+        basis.terms.push_back(exponent);
+        if (exponent == PolynomialExponent{1, 0, 0}) basis.linearX = index;
+        if (exponent == PolynomialExponent{0, 1, 0}) basis.linearY = index;
+        if (exponent == PolynomialExponent{0, 0, 1}) basis.linearZ = index;
+        if (yExponent == 0) break;
+      }
+      if (xExponent == 0) break;
+    }
+  }
+  if (basis.terms.size() != PolynomialBasisSize(degree)
+      || basis.terms.empty() || basis.terms.front() != PolynomialExponent{0, 0, 0}) {
+    throw std::logic_error("GeneratePolynomialBasis: inconsistent basis generation");
+  }
+  return basis;
+}
+
+namespace {
+
+double integerPower(double value, std::size_t exponent) {
+  double result = 1.0;
+  for (std::size_t power = 0; power < exponent; ++power) result *= value;
+  return result;
+}
+
+class PolynomialFactorization {
+public:
+  PolynomialFactorization(
+    std::span<const GridCoordinate> coordinates,
+    const GridCoordinate& target,
+    const LinearReconstructionOptions& options,
+    const char* caller
+  ): _sampleCount(coordinates.size()) {
+    if (options.polynomialDegree > 3) {
+      throw std::invalid_argument(std::string(caller) + ": supported polynomial degree is 0 through 3");
+    }
+    _basis = GeneratePolynomialBasis(options.polynomialDegree);
+    if (coordinates.size() < _basis.terms.size()) {
+      const std::string requiredSamples = options.polynomialDegree == 1
+        ? "four" : std::to_string(_basis.terms.size());
+      throw std::invalid_argument(
+        std::string(caller) + ": degree-" + std::to_string(options.polynomialDegree)
+        + " reconstruction requires at least " + requiredSamples
+        + " samples");
+    }
+    if (!std::isfinite(target.x) || !std::isfinite(target.y) || !std::isfinite(target.z)) {
+      throw std::invalid_argument(std::string(caller) + ": target must be finite");
+    }
+    if (!std::isfinite(options.rankToleranceMultiplier)
+        || options.rankToleranceMultiplier <= 0.0) {
+      throw std::invalid_argument(
+        std::string(caller) + ": rank tolerance multiplier must be finite and positive");
+    }
+
+    for (const GridCoordinate& sample : coordinates) {
+      if (!std::isfinite(sample.x) || !std::isfinite(sample.y) || !std::isfinite(sample.z)) {
+        throw std::invalid_argument(std::string(caller) + ": sample coordinates must be finite");
+      }
+      _lengthScale = std::max(
+        _lengthScale,
+        std::hypot(sample.x - target.x, sample.y - target.y, sample.z - target.z));
+    }
+    if (!std::isfinite(_lengthScale)
+        || (_lengthScale <= 0.0 && options.polynomialDegree > 0)) {
+      throw std::invalid_argument(std::string(caller) + ": samples are geometrically rank deficient");
+    }
+    if (_lengthScale == 0.0) _lengthScale = 1.0;
+
+    _sqrtWeights.resize(coordinates.size());
+    _q.assign(_basis.terms.size(), std::vector<double>(coordinates.size()));
+    for (std::size_t row = 0; row < coordinates.size(); ++row) {
+      const GridCoordinate& sample = coordinates[row];
+      const double dx = sample.x - target.x;
+      const double dy = sample.y - target.y;
+      const double dz = sample.z - target.z;
+      const double distance = std::hypot(dx, dy, dz);
+      _sqrtWeights[row] = std::sqrt(
+        LinearReconstructionWeight(distance, _lengthScale, options));
+      const double X = dx / _lengthScale;
+      const double Y = dy / _lengthScale;
+      const double Z = dz / _lengthScale;
+      for (std::size_t column = 0; column < _basis.terms.size(); ++column) {
+        const PolynomialExponent& exponent = _basis.terms[column];
+        _q[column][row] = integerPower(X, exponent.x)
+                        * integerPower(Y, exponent.y)
+                        * integerPower(Z, exponent.z) * _sqrtWeights[row];
+      }
+    }
+
+    const auto dot = [](const std::vector<double>& first, const std::vector<double>& second) {
+      return std::inner_product(first.begin(), first.end(), second.begin(), 0.0);
+    };
+    std::vector<double> squaredNorm(_basis.terms.size());
+    for (std::size_t column = 0; column < _basis.terms.size(); ++column) {
+      squaredNorm[column] = dot(_q[column], _q[column]);
+    }
+    const double largestInitialNorm =
+      std::sqrt(*std::max_element(squaredNorm.begin(), squaredNorm.end()));
+    const double rankTolerance = options.rankToleranceMultiplier
+      * std::numeric_limits<double>::epsilon() * static_cast<double>(coordinates.size())
+      * largestInitialNorm;
+    _r.assign(_basis.terms.size(), std::vector<double>(_basis.terms.size()));
+    _permutation.resize(_basis.terms.size());
+    std::iota(_permutation.begin(), _permutation.end(), std::size_t{0});
+
+    double minimumDiagonal = std::numeric_limits<double>::infinity();
+    double maximumDiagonal = 0.0;
+    for (std::size_t pivot = 0; pivot < _basis.terms.size(); ++pivot) {
+      const auto largest = std::max_element(squaredNorm.begin() + pivot, squaredNorm.end());
+      const std::size_t selected = static_cast<std::size_t>(largest - squaredNorm.begin());
+      if (selected != pivot) {
+        std::swap(_q[pivot], _q[selected]);
+        std::swap(squaredNorm[pivot], squaredNorm[selected]);
+        std::swap(_permutation[pivot], _permutation[selected]);
+        for (std::size_t previous = 0; previous < pivot; ++previous) {
+          std::swap(_r[previous][pivot], _r[previous][selected]);
+        }
+      }
+      const double diagonal = std::sqrt(squaredNorm[pivot]);
+      if (!(diagonal > rankTolerance) || !std::isfinite(diagonal)) {
+        throw std::invalid_argument(std::string(caller) + ": samples are geometrically rank deficient");
+      }
+      _r[pivot][pivot] = diagonal;
+      minimumDiagonal = std::min(minimumDiagonal, diagonal);
+      maximumDiagonal = std::max(maximumDiagonal, diagonal);
+      for (double& entry : _q[pivot]) entry /= diagonal;
+      for (std::size_t column = pivot + 1; column < _basis.terms.size(); ++column) {
+        _r[pivot][column] = dot(_q[pivot], _q[column]);
+        for (std::size_t row = 0; row < coordinates.size(); ++row) {
+          _q[column][row] -= _r[pivot][column] * _q[pivot][row];
+        }
+        squaredNorm[column] = dot(_q[column], _q[column]);
+      }
+    }
+    _conditionEstimate = maximumDiagonal / minimumDiagonal;
+  }
+
+  std::vector<double> solve(std::span<const double> values, const char* caller) const {
+    if (values.size() != _sampleCount) {
+      throw std::invalid_argument(std::string(caller) + ": right-hand-side size mismatch");
+    }
+    std::vector<double> projected(_basis.terms.size());
+    for (std::size_t column = 0; column < _basis.terms.size(); ++column) {
+      for (std::size_t row = 0; row < values.size(); ++row) {
+        if (!std::isfinite(values[row])) {
+          throw std::invalid_argument(std::string(caller) + ": sample values must be finite");
+        }
+        projected[column] += _q[column][row] * values[row] * _sqrtWeights[row];
+      }
+    }
+    std::vector<double> pivoted(_basis.terms.size());
+    for (std::size_t reverse = _basis.terms.size(); reverse-- > 0;) {
+      double residual = projected[reverse];
+      for (std::size_t column = reverse + 1; column < _basis.terms.size(); ++column) {
+        residual -= _r[reverse][column] * pivoted[column];
+      }
+      pivoted[reverse] = residual / _r[reverse][reverse];
+    }
+    std::vector<double> coefficients(_basis.terms.size());
+    for (std::size_t column = 0; column < _basis.terms.size(); ++column) {
+      coefficients[_permutation[column]] = pivoted[column];
+    }
+    return coefficients;
+  }
+
+  const PolynomialBasis& basis() const { return _basis; }
+  std::size_t rank() const { return _basis.terms.size(); }
+  double lengthScale() const { return _lengthScale; }
+  double conditionEstimate() const { return _conditionEstimate; }
+
+private:
+  PolynomialBasis _basis;
+  std::size_t _sampleCount = 0;
+  double _lengthScale = 0.0;
+  double _conditionEstimate = 1.0;
+  std::vector<double> _sqrtWeights;
+  std::vector<std::vector<double>> _q;
+  std::vector<std::vector<double>> _r;
+  std::vector<std::size_t> _permutation;
+};
+
+}  // namespace
+
 LinearPolynomialFit FitLinearPolynomial(
   std::span<const GridCoordinate> sampleCoordinates,
   std::span<const double> sampleValues,
   const GridCoordinate& target,
   const LinearReconstructionOptions& options
 ) {
-  constexpr std::size_t BasisSize = 4;
   if (sampleCoordinates.size() != sampleValues.size()) {
     throw std::invalid_argument(
       "FitLinearPolynomial: coordinate and value counts must match");
@@ -405,145 +603,22 @@ LinearPolynomialFit FitLinearPolynomial(
   }
   sampleCoordinates = sampleCoordinates.first(requestedCount);
   sampleValues = sampleValues.first(requestedCount);
-  if (sampleCoordinates.size() < BasisSize) {
-    throw std::invalid_argument(
-      "FitLinearPolynomial: degree-1 reconstruction requires at least four samples");
-  }
-  if (!std::isfinite(target.x) || !std::isfinite(target.y)
-      || !std::isfinite(target.z)) {
-    throw std::invalid_argument("FitLinearPolynomial: target must be finite");
-  }
-  if (!std::isfinite(options.rankToleranceMultiplier)
-      || options.rankToleranceMultiplier <= 0.0) {
-    throw std::invalid_argument(
-      "FitLinearPolynomial: rank tolerance multiplier must be finite and positive");
-  }
-
-  double lengthScale = 0.0;
-  for (std::size_t row = 0; row < sampleCoordinates.size(); ++row) {
-    const GridCoordinate& sample = sampleCoordinates[row];
-    if (!std::isfinite(sample.x) || !std::isfinite(sample.y)
-        || !std::isfinite(sample.z) || !std::isfinite(sampleValues[row])) {
-      throw std::invalid_argument(
-        "FitLinearPolynomial: sample coordinates and values must be finite");
-    }
-    lengthScale = std::max(
-      lengthScale,
-      std::hypot(sample.x - target.x, sample.y - target.y, sample.z - target.z)
-    );
-  }
-  if (!(lengthScale > 0.0) || !std::isfinite(lengthScale)) {
-    throw std::invalid_argument(
-      "FitLinearPolynomial: samples are geometrically rank deficient");
-  }
-
-  std::vector<double> squareRootWeights(sampleCoordinates.size());
-  for (std::size_t row = 0; row < sampleCoordinates.size(); ++row) {
-    const GridCoordinate& sample = sampleCoordinates[row];
-    const double distance = std::hypot(
-      sample.x - target.x, sample.y - target.y, sample.z - target.z);
-    squareRootWeights[row] = std::sqrt(
-      LinearReconstructionWeight(distance, lengthScale, options));
-  }
-
-  std::array<std::vector<double>, BasisSize> columns;
-  for (auto& column : columns) {
-    column.resize(sampleCoordinates.size());
-  }
-  for (std::size_t row = 0; row < sampleCoordinates.size(); ++row) {
-    columns[0][row] = 1.0;
-    columns[1][row] = (sampleCoordinates[row].x - target.x) / lengthScale;
-    columns[2][row] = (sampleCoordinates[row].y - target.y) / lengthScale;
-    columns[3][row] = (sampleCoordinates[row].z - target.z) / lengthScale;
-    for (std::size_t column = 0; column < BasisSize; ++column) {
-      columns[column][row] *= squareRootWeights[row];
-    }
-  }
-
-  const auto dot = [](const std::vector<double>& first,
-                      const std::vector<double>& second) {
-    return std::inner_product(first.begin(), first.end(), second.begin(), 0.0);
-  };
-  std::array<double, BasisSize> squaredNorm{};
-  for (std::size_t column = 0; column < BasisSize; ++column) {
-    squaredNorm[column] = dot(columns[column], columns[column]);
-  }
-  const double largestInitialNorm =
-    std::sqrt(*std::max_element(squaredNorm.begin(), squaredNorm.end()));
-  const double rankTolerance =
-    options.rankToleranceMultiplier * std::numeric_limits<double>::epsilon()
-    * static_cast<double>(sampleCoordinates.size()) * largestInitialNorm;
-
-  std::array<std::array<double, BasisSize>, BasisSize> upperTriangular{};
-  std::array<std::size_t, BasisSize> permutation{0, 1, 2, 3};
-  for (std::size_t pivot = 0; pivot < BasisSize; ++pivot) {
-    const auto largest = std::max_element(
-      squaredNorm.begin() + pivot,
-      squaredNorm.end()
-    );
-    const std::size_t selected =
-      static_cast<std::size_t>(largest - squaredNorm.begin());
-    if (selected != pivot) {
-      std::swap(columns[pivot], columns[selected]);
-      std::swap(squaredNorm[pivot], squaredNorm[selected]);
-      std::swap(permutation[pivot], permutation[selected]);
-      for (std::size_t previous = 0; previous < pivot; ++previous) {
-        std::swap(
-          upperTriangular[previous][pivot],
-          upperTriangular[previous][selected]
-        );
-      }
-    }
-
-    const double diagonal = std::sqrt(squaredNorm[pivot]);
-    if (!(diagonal > rankTolerance) || !std::isfinite(diagonal)) {
-      throw std::invalid_argument(
-        "FitLinearPolynomial: samples are geometrically rank deficient");
-    }
-    upperTriangular[pivot][pivot] = diagonal;
-    for (double& entry : columns[pivot]) {
-      entry /= diagonal;
-    }
-
-    for (std::size_t column = pivot + 1; column < BasisSize; ++column) {
-      upperTriangular[pivot][column] = dot(columns[pivot], columns[column]);
-      for (std::size_t row = 0; row < sampleCoordinates.size(); ++row) {
-        columns[column][row] -=
-          upperTriangular[pivot][column] * columns[pivot][row];
-      }
-      squaredNorm[column] = dot(columns[column], columns[column]);
-    }
-  }
-
-  std::array<double, BasisSize> projectedValues{};
-  for (std::size_t column = 0; column < BasisSize; ++column) {
-    for (std::size_t row = 0; row < sampleValues.size(); ++row) {
-      projectedValues[column] +=
-        columns[column][row] * sampleValues[row] * squareRootWeights[row];
-    }
-  }
-  std::array<double, BasisSize> pivotedCoefficients{};
-  for (std::size_t reverse = BasisSize; reverse-- > 0;) {
-    double residual = projectedValues[reverse];
-    for (std::size_t column = reverse + 1; column < BasisSize; ++column) {
-      residual -= upperTriangular[reverse][column] * pivotedCoefficients[column];
-    }
-    pivotedCoefficients[reverse] = residual / upperTriangular[reverse][reverse];
-  }
-  std::array<double, BasisSize> coefficients{};
-  for (std::size_t column = 0; column < BasisSize; ++column) {
-    coefficients[permutation[column]] = pivotedCoefficients[column];
-  }
-
+  PolynomialFactorization factorization(
+    sampleCoordinates, target, options, "FitLinearPolynomial");
+  const std::vector<double> coefficients =
+    factorization.solve(sampleValues, "FitLinearPolynomial");
+  const PolynomialBasis& basis = factorization.basis();
   LinearPolynomialFit result{
-    .value = coefficients[0],
-    .derivative = {
-      coefficients[1] / lengthScale,
-      coefficients[2] / lengthScale,
-      coefficients[3] / lengthScale
-    },
-    .lengthScale = lengthScale
+    .value = coefficients[basis.constant],
+    .lengthScale = factorization.lengthScale()
   };
+  if (basis.linearX != PolynomialBasis::NoTerm) {
+    result.derivative = {
+      coefficients[basis.linearX] / result.lengthScale,
+      coefficients[basis.linearY] / result.lengthScale,
+      coefficients[basis.linearZ] / result.lengthScale
+    };
+  }
   if (!std::isfinite(result.value)
       || !std::isfinite(result.derivative[0])
       || !std::isfinite(result.derivative[1])
@@ -559,10 +634,7 @@ CompactLinearFit FitCompactLinearPolynomial(
   const GridCoordinate& target,
   const LinearReconstructionOptions& options
 ) {
-  constexpr std::size_t BasisSize = 4;
   constexpr std::size_t FieldCount = NumberOfCompactFields;
-
-  // 1. Validate the stencil, target, and fixed 14-column grid layout.
   const std::size_t requestedCount = options.numberOfNeighbours == 0
     ? neighbourIndices.size() : options.numberOfNeighbours;
   if (requestedCount > neighbourIndices.size()) {
@@ -570,179 +642,47 @@ CompactLinearFit FitCompactLinearPolynomial(
       "FitCompactLinearPolynomial: requested neighbour count exceeds supplied neighbours");
   }
   neighbourIndices = neighbourIndices.first(requestedCount);
-  if (neighbourIndices.size() < BasisSize) {
-    throw std::invalid_argument(
-      "FitCompactLinearPolynomial: degree-1 reconstruction requires at least four neighbours");
-  }
-  if (!std::isfinite(target.x) || !std::isfinite(target.y)
-      || !std::isfinite(target.z)) {
-    throw std::invalid_argument(
-      "FitCompactLinearPolynomial: target must be finite");
-  }
   if (!gridData.isConsistent()) {
     throw std::invalid_argument(
       "FitCompactLinearPolynomial: GridData must contain fourteen values per cell");
   }
-  if (!std::isfinite(options.rankToleranceMultiplier)
-      || options.rankToleranceMultiplier <= 0.0) {
-    throw std::invalid_argument(
-      "FitCompactLinearPolynomial: rank tolerance multiplier must be finite and positive");
-  }
 
-  // 2. Set ell to the farthest-neighbour distance and validate coordinates.
-  double lengthScale = 0.0;
+  std::vector<GridCoordinate> coordinates;
+  coordinates.reserve(neighbourIndices.size());
+  std::array<std::vector<double>, FieldCount> rightHandSides;
+  for (auto& values : rightHandSides) values.reserve(neighbourIndices.size());
   for (std::size_t cellIndex : neighbourIndices) {
     if (cellIndex >= gridData.coordinates.size()) {
       throw std::out_of_range(
         "FitCompactLinearPolynomial: neighbour cell index is out of range");
     }
-    const GridCoordinate& sample = gridData.coordinates[cellIndex];
-    if (!std::isfinite(sample.x) || !std::isfinite(sample.y)
-        || !std::isfinite(sample.z)) {
-      throw std::invalid_argument(
-        "FitCompactLinearPolynomial: neighbour coordinates must be finite");
-    }
-    lengthScale = std::max(
-      lengthScale,
-      std::hypot(sample.x - target.x, sample.y - target.y, sample.z - target.z)
-    );
-  }
-  if (!(lengthScale > 0.0) || !std::isfinite(lengthScale)) {
-    throw std::invalid_argument(
-      "FitCompactLinearPolynomial: neighbours are geometrically rank deficient");
-  }
-
-  std::vector<double> squareRootWeights(neighbourIndices.size());
-  for (std::size_t row = 0; row < neighbourIndices.size(); ++row) {
-    const GridCoordinate& sample = gridData.coordinates[neighbourIndices[row]];
-    const double distance = std::hypot(
-      sample.x - target.x, sample.y - target.y, sample.z - target.z);
-    squareRootWeights[row] = std::sqrt(
-      LinearReconstructionWeight(distance, lengthScale, options));
-  }
-
-  // 3. Build the shared n-by-4 design matrix [1, X, Y, Z].
-  std::array<std::vector<double>, BasisSize> columns;
-  for (auto& column : columns) {
-    column.resize(neighbourIndices.size());
-  }
-  for (std::size_t row = 0; row < neighbourIndices.size(); ++row) {
-    const GridCoordinate& sample = gridData.coordinates[neighbourIndices[row]];
-    columns[0][row] = 1.0;
-    columns[1][row] = (sample.x - target.x) / lengthScale;
-    columns[2][row] = (sample.y - target.y) / lengthScale;
-    columns[3][row] = (sample.z - target.z) / lengthScale;
-    for (std::size_t column = 0; column < BasisSize; ++column) {
-      columns[column][row] *= squareRootWeights[row];
-    }
-  }
-
-  // 4. Factor the design matrix once using column-pivoted modified Gram-Schmidt QR.
-  const auto dot = [](const std::vector<double>& first,
-                      const std::vector<double>& second) {
-    return std::inner_product(first.begin(), first.end(), second.begin(), 0.0);
-  };
-  std::array<double, BasisSize> squaredNorm{};
-  for (std::size_t column = 0; column < BasisSize; ++column) {
-    squaredNorm[column] = dot(columns[column], columns[column]);
-  }
-  const double largestInitialNorm =
-    std::sqrt(*std::max_element(squaredNorm.begin(), squaredNorm.end()));
-  const double rankTolerance =
-    options.rankToleranceMultiplier * std::numeric_limits<double>::epsilon()
-    * static_cast<double>(neighbourIndices.size()) * largestInitialNorm;
-
-  std::array<std::array<double, BasisSize>, BasisSize> upperTriangular{};
-  std::array<std::size_t, BasisSize> permutation{0, 1, 2, 3};
-  for (std::size_t pivot = 0; pivot < BasisSize; ++pivot) {
-    const auto largest = std::max_element(
-      squaredNorm.begin() + pivot, squaredNorm.end());
-    const std::size_t selected =
-      static_cast<std::size_t>(largest - squaredNorm.begin());
-    if (selected != pivot) {
-      std::swap(columns[pivot], columns[selected]);
-      std::swap(squaredNorm[pivot], squaredNorm[selected]);
-      std::swap(permutation[pivot], permutation[selected]);
-      for (std::size_t previous = 0; previous < pivot; ++previous) {
-        std::swap(
-          upperTriangular[previous][pivot],
-          upperTriangular[previous][selected]);
-      }
-    }
-
-    const double diagonal = std::sqrt(squaredNorm[pivot]);
-    if (!(diagonal > rankTolerance) || !std::isfinite(diagonal)) {
-      throw std::invalid_argument(
-        "FitCompactLinearPolynomial: neighbours are geometrically rank deficient");
-    }
-    upperTriangular[pivot][pivot] = diagonal;
-    for (double& entry : columns[pivot]) {
-      entry /= diagonal;
-    }
-    for (std::size_t column = pivot + 1; column < BasisSize; ++column) {
-      upperTriangular[pivot][column] = dot(columns[pivot], columns[column]);
-      for (std::size_t row = 0; row < neighbourIndices.size(); ++row) {
-        columns[column][row] -=
-          upperTriangular[pivot][column] * columns[pivot][row];
-      }
-      squaredNorm[column] = dot(columns[column], columns[column]);
-    }
-  }
-
-  // 5. Apply Q^T to all 14 right-hand sides at the same time.
-  std::array<std::array<double, FieldCount>, BasisSize> projected{};
-  for (std::size_t basis = 0; basis < BasisSize; ++basis) {
-    for (std::size_t row = 0; row < neighbourIndices.size(); ++row) {
-      const auto compactRow = gridData.cell(neighbourIndices[row]).row();
-      for (std::size_t field = 0; field < FieldCount; ++field) {
-        if (!std::isfinite(compactRow[field])) {
-          throw std::invalid_argument(
-            "FitCompactLinearPolynomial: compact values must be finite");
-        }
-        projected[basis][field] +=
-          columns[basis][row] * compactRow[field] * squareRootWeights[row];
-      }
-    }
-  }
-
-  // 6. Solve R C = Q^T B and undo the QR column permutation.
-  std::array<std::array<double, FieldCount>, BasisSize> pivotedCoefficients{};
-  for (std::size_t reverse = BasisSize; reverse-- > 0;) {
+    coordinates.push_back(gridData.coordinates[cellIndex]);
+    const auto row = gridData.cell(cellIndex).row();
     for (std::size_t field = 0; field < FieldCount; ++field) {
-      double residual = projected[reverse][field];
-      for (std::size_t column = reverse + 1; column < BasisSize; ++column) {
-        residual -= upperTriangular[reverse][column]
-                  * pivotedCoefficients[column][field];
-      }
-      pivotedCoefficients[reverse][field] =
-        residual / upperTriangular[reverse][reverse];
+      rightHandSides[field].push_back(row[field]);
     }
   }
-  std::array<std::array<double, FieldCount>, BasisSize> coefficients{};
-  for (std::size_t column = 0; column < BasisSize; ++column) {
-    coefficients[permutation[column]] = pivotedCoefficients[column];
-  }
 
-  // 7. Return row 0 as target values and rescale rows 1-3 into Cartesian gradients.
-  double minimumDiagonal = std::numeric_limits<double>::infinity();
-  double maximumDiagonal = 0.0;
-  for (std::size_t diagonal = 0; diagonal < BasisSize; ++diagonal) {
-    const double magnitude = std::abs(upperTriangular[diagonal][diagonal]);
-    minimumDiagonal = std::min(minimumDiagonal, magnitude);
-    maximumDiagonal = std::max(maximumDiagonal, magnitude);
-  }
+  PolynomialFactorization factorization(
+    coordinates, target, options, "FitCompactLinearPolynomial");
   CompactLinearFit result{
     .numberOfNeighbours = neighbourIndices.size(),
-    .polynomialDegree = 1,
-    .rank = BasisSize,
-    .lengthScale = lengthScale,
-    .conditionEstimate = maximumDiagonal / minimumDiagonal
+    .polynomialDegree = options.polynomialDegree,
+    .rank = factorization.rank(),
+    .lengthScale = factorization.lengthScale(),
+    .conditionEstimate = factorization.conditionEstimate()
   };
+  const PolynomialBasis& basis = factorization.basis();
   for (std::size_t field = 0; field < FieldCount; ++field) {
-    result.values[field] = coefficients[0][field];
-    for (std::size_t direction = 0; direction < 3; ++direction) {
-      result.gradients[field][direction] =
-        coefficients[direction + 1][field] / lengthScale;
+    const std::vector<double> coefficients =
+      factorization.solve(rightHandSides[field], "FitCompactLinearPolynomial");
+    result.values[field] = coefficients[basis.constant];
+    if (basis.linearX != PolynomialBasis::NoTerm) {
+      result.gradients[field] = {
+        coefficients[basis.linearX] / result.lengthScale,
+        coefficients[basis.linearY] / result.lengthScale,
+        coefficients[basis.linearZ] / result.lengthScale
+      };
     }
   }
   return result;
@@ -774,6 +714,11 @@ void InterpolateCartesianToSurface(
   if (options.numberOfNeighbours == 0) {
     throw std::invalid_argument(
       "InterpolateCartesianToSurface: neighbour count must be greater than zero");
+  }
+  if (options.method != CartesianToSurfaceMethod::NearestNeighbour
+      && options.polynomialDegree > 3) {
+    throw std::invalid_argument(
+      "InterpolateCartesianToSurface: supported polynomial degree is 0 through 3");
   }
   if (gridData.coordinates.empty()) {
     throw std::invalid_argument(
@@ -840,8 +785,10 @@ void InterpolateCartesianToSurface(
 
       InterpolationDiagnostics diagnostics{
         .requestedMethod = options.method,
-        .requestedDegree = options.method == CartesianToSurfaceMethod::NearestNeighbour ? 0u : 1u,
-        .degreeUsed = options.method == CartesianToSurfaceMethod::NearestNeighbour ? 0u : 1u,
+        .requestedDegree = options.method == CartesianToSurfaceMethod::NearestNeighbour
+          ? 0u : options.polynomialDegree,
+        .degreeUsed = options.method == CartesianToSurfaceMethod::NearestNeighbour
+          ? 0u : options.polynomialDegree,
         .neighbourCount = options.method == CartesianToSurfaceMethod::NearestNeighbour
           ? 1u : options.numberOfNeighbours,
         .target = target,
@@ -853,11 +800,11 @@ void InterpolateCartesianToSurface(
       bool useNearestNeighbour =
         options.method == CartesianToSurfaceMethod::NearestNeighbour;
       if (!useNearestNeighbour
-          && (options.numberOfNeighbours < 4
+          && (options.numberOfNeighbours < PolynomialBasisSize(options.polynomialDegree)
               || options.numberOfNeighbours > gridData.coordinates.size())) {
         if (!options.allowOrderReduction) {
           throw std::invalid_argument(
-            "degree-1 reconstruction has insufficient neighbours and order reduction is disabled");
+            "polynomial reconstruction has insufficient neighbours and order reduction is disabled");
         }
         useNearestNeighbour = true;
         diagnostics.degreeUsed = 0;
@@ -886,16 +833,17 @@ void InterpolateCartesianToSurface(
       std::array<Vector3, NumberOfCompactFields> compactGradients{};
       bool derivativesAvailable = false;
 
-      // 4. Sample one cell directly, or reconstruct all fields with degree-1 MLS.
+      // 4. Sample one cell directly, or reconstruct all fields with polynomial MLS.
       if (useNearestNeighbour) {
         const auto row = gridData.cell(neighbours.front()).row();
         std::copy(row.begin(), row.end(), compactValues.begin());
       } else {
         const LinearReconstructionOptions reconstructionOptions{
-          .method = options.method == CartesianToSurfaceMethod::WeightedDegree1
+          .method = options.method == CartesianToSurfaceMethod::WeightedPolynomial
             ? LinearReconstructionMethod::WeightedMovingLeastSquares
             : LinearReconstructionMethod::Unweighted,
           .numberOfNeighbours = neighbours.size(),
+          .polynomialDegree = options.polynomialDegree,
           .weightSupport = options.weightSupport,
           .rankToleranceMultiplier = options.rankToleranceMultiplier
         };

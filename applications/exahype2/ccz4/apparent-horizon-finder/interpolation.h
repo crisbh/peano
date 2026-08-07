@@ -3,6 +3,7 @@
 
 #include "ahf-data.h"
 
+#include <limits>
 #include <memory>
 #include <span>
 #include <vector>
@@ -95,6 +96,26 @@ struct LinearPolynomialFit {
   double lengthScale = 0.0;
 };
 
+struct PolynomialExponent {
+  std::size_t x = 0;
+  std::size_t y = 0;
+  std::size_t z = 0;
+
+  bool operator==(const PolynomialExponent&) const = default;
+};
+
+struct PolynomialBasis {
+  static constexpr std::size_t NoTerm = std::numeric_limits<std::size_t>::max();
+  std::vector<PolynomialExponent> terms;
+  std::size_t constant = 0;
+  std::size_t linearX = NoTerm;
+  std::size_t linearY = NoTerm;
+  std::size_t linearZ = NoTerm;
+};
+
+std::size_t PolynomialBasisSize(std::size_t degree);
+PolynomialBasis GeneratePolynomialBasis(std::size_t degree);
+
 enum class LinearReconstructionMethod {
   Unweighted,
   WeightedMovingLeastSquares
@@ -104,6 +125,8 @@ struct LinearReconstructionOptions {
   LinearReconstructionMethod method = LinearReconstructionMethod::Unweighted;
   /** Zero uses every supplied sample; otherwise use the first requested samples. */
   std::size_t numberOfNeighbours = 0;
+  /** Supported reconstruction degree, currently 0 through 3. */
+  std::size_t polynomialDegree = 1;
   /** Gaussian support alpha in exp(-(distance/(alpha*ell))^2). */
   double weightSupport = 1.0;
   /**
@@ -122,13 +145,17 @@ double LinearReconstructionWeight(
 );
 
 /**
- * Unweighted degree-1 scalar least-squares reconstruction using the basis
- * [1,X,Y,Z] and a column-pivoted QR solve. The length scale ell is the maximum
+ * Scalar total-degree polynomial least-squares reconstruction using a
+ * column-pivoted QR solve. The length scale ell is the maximum
  * Euclidean distance of any sample from the target, which bounds every scaled
  * sample radius by one and is insensitive to sample ordering.
  *
- * @throws std::invalid_argument for malformed/non-finite input, fewer than four
- * samples, or a geometrically rank-deficient sample distribution.
+ * The configured degree p requires at least (p+1)(p+2)(p+3)/6 samples; using
+ * more gives the intended overdetermined fit. Degrees 0 through 3 are
+ * currently supported by the reconstruction kernel.
+ *
+ * @throws std::invalid_argument for malformed/non-finite input, too few
+ * samples, an unsupported degree, or a rank-deficient sample distribution.
  */
 LinearPolynomialFit FitLinearPolynomial(
   std::span<const GridCoordinate> sampleCoordinates,
@@ -149,7 +176,7 @@ struct CompactLinearFit {
 };
 
 /**
- * Reconstruct all fourteen compact fields with one shared degree-1 design
+ * Reconstruct all fourteen compact fields with one shared polynomial design
  * matrix and one column-pivoted QR factorisation. Result fields retain compact
  * order, including K at 12 and direct phi at 13.
  */
@@ -161,8 +188,9 @@ CompactLinearFit FitCompactLinearPolynomial(
 );
 
 struct CartesianToSurfaceOptions {
-  CartesianToSurfaceMethod method = CartesianToSurfaceMethod::WeightedDegree1;
+  CartesianToSurfaceMethod method = CartesianToSurfaceMethod::WeightedPolynomial;
   std::size_t numberOfNeighbours = 8;
+  std::size_t polynomialDegree = 1;
   double weightSupport = 1.0;
   double rankToleranceMultiplier = 64.0;
   bool allowOrderReduction = false;
@@ -172,7 +200,7 @@ struct CartesianToSurfaceOptions {
 
 /**
  * Interpolate compact Cartesian fields directly to every AH surface point.
- * Degree-1 modes populate physical metric derivatives in [k][i][j] order,
+ * Polynomial modes populate physical metric derivatives in [k][i][j] order,
  * where k is the Cartesian differentiation direction. Surface-shape and
  * angular derivatives are intentionally not computed.
  */

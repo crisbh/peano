@@ -59,8 +59,11 @@ struct GridCoordinate {
 
 enum class CartesianToSurfaceMethod {
   NearestNeighbour,
-  UnweightedDegree1,
-  WeightedDegree1
+  UnweightedPolynomial,
+  WeightedPolynomial,
+  /** Backward-compatible names retained for callers of the original degree-1 API. */
+  UnweightedDegree1 = UnweightedPolynomial,
+  WeightedDegree1 = WeightedPolynomial
 };
 
 struct InterpolationDiagnostics {

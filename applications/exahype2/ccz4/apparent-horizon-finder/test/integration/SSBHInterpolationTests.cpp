@@ -153,9 +153,9 @@ void testSSBHInterpolation(const GridData& gridData) {
   }};
 
   const InterpolatedSurface mls64 = interpolate(
-    gridData, guess, CartesianToSurfaceMethod::WeightedDegree1, 64);
+    gridData, guess, CartesianToSurfaceMethod::WeightedPolynomial, 64);
   const InterpolatedSurface mls128 = interpolate(
-    gridData, guess, CartesianToSurfaceMethod::WeightedDegree1, 128);
+    gridData, guess, CartesianToSurfaceMethod::WeightedPolynomial, 128);
   assertFiniteAndPhysical(mls64);
   assertFiniteAndPhysical(mls128);
 
@@ -190,7 +190,7 @@ void testSSBHInterpolation(const GridData& gridData) {
   const InterpolatedSurface nearest = interpolate(
     gridData, resolvedPoint, CartesianToSurfaceMethod::NearestNeighbour, 1);
   const InterpolatedSurface mls = interpolate(
-    gridData, resolvedPoint, CartesianToSurfaceMethod::WeightedDegree1, 128);
+    gridData, resolvedPoint, CartesianToSurfaceMethod::WeightedPolynomial, 128);
   assertFiniteAndPhysical(nearest);
   assertFiniteAndPhysical(mls);
   for (std::size_t i = 0; i < 3; ++i) {
