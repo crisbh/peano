@@ -703,106 +703,94 @@ void InterpolateToSurfaceNearestNeighbour(
   );
 }
 
-void InterpolateCartesianToSurface(
+CartesianPointInterpolator::CartesianPointInterpolator(
   const GridData& gridData,
-  const AHGuess& ahGuess,
-  const ReferencePoint& referencePoint,
-  InterpolatedSurface& interpolatedSurface,
   const CartesianToSurfaceOptions& options
-) {
-  // 1. Validate options and prepare a replacement output surface.
+):
+  _gridData(&gridData),
+  _options(options),
+  _spatialIndex(gridData),
+  _domainMinimum(gridData.coordinates.front()),
+  _domainMaximum(gridData.coordinates.front()) {
+  if (!gridData.isConsistent()) {
+    throw std::invalid_argument(
+      "CartesianPointInterpolator: GridData value count must equal cell count times fourteen");
+  }
   if (options.numberOfNeighbours == 0) {
     throw std::invalid_argument(
-      "InterpolateCartesianToSurface: neighbour count must be greater than zero");
+      "CartesianPointInterpolator: neighbour count must be greater than zero");
   }
   if (options.method != CartesianToSurfaceMethod::NearestNeighbour
       && options.polynomialDegree > 3) {
     throw std::invalid_argument(
-      "InterpolateCartesianToSurface: supported polynomial degree is 0 through 3");
-  }
-  if (gridData.coordinates.empty()) {
-    throw std::invalid_argument(
-      "InterpolateCartesianToSurface: Cartesian grid must not be empty");
-  }
-  if (!gridData.isConsistent()) {
-    throw std::invalid_argument(
-      "InterpolateCartesianToSurface: GridData value count must equal cell count times fourteen");
+      "CartesianPointInterpolator: supported polynomial degree is 0 through 3");
   }
   if (!std::isfinite(options.domainRelativeTolerance)
       || options.domainRelativeTolerance < 0.0) {
     throw std::invalid_argument(
-      "InterpolateCartesianToSurface: domain relative tolerance must be finite and non-negative");
+      "CartesianPointInterpolator: domain relative tolerance must be finite and non-negative");
   }
-
-  GridCoordinate domainMinimum = gridData.coordinates.front();
-  GridCoordinate domainMaximum = gridData.coordinates.front();
   for (const GridCoordinate& coordinate : gridData.coordinates) {
-    if (!std::isfinite(coordinate.x) || !std::isfinite(coordinate.y)
-        || !std::isfinite(coordinate.z)) {
-      throw std::invalid_argument(
-        "InterpolateCartesianToSurface: grid coordinates must be finite");
-    }
-    domainMinimum.x = std::min(domainMinimum.x, coordinate.x);
-    domainMinimum.y = std::min(domainMinimum.y, coordinate.y);
-    domainMinimum.z = std::min(domainMinimum.z, coordinate.z);
-    domainMaximum.x = std::max(domainMaximum.x, coordinate.x);
-    domainMaximum.y = std::max(domainMaximum.y, coordinate.y);
-    domainMaximum.z = std::max(domainMaximum.z, coordinate.z);
+    _domainMinimum.x = std::min(_domainMinimum.x, coordinate.x);
+    _domainMinimum.y = std::min(_domainMinimum.y, coordinate.y);
+    _domainMinimum.z = std::min(_domainMinimum.z, coordinate.z);
+    _domainMaximum.x = std::max(_domainMaximum.x, coordinate.x);
+    _domainMaximum.y = std::max(_domainMaximum.y, coordinate.y);
+    _domainMaximum.z = std::max(_domainMaximum.z, coordinate.z);
   }
-  const double domainDiagonal = std::hypot(
-    domainMaximum.x - domainMinimum.x,
-    domainMaximum.y - domainMinimum.y,
-    domainMaximum.z - domainMinimum.z
+  _domainDiagonal = std::hypot(
+    _domainMaximum.x - _domainMinimum.x,
+    _domainMaximum.y - _domainMinimum.y,
+    _domainMaximum.z - _domainMinimum.z
   );
-  // Build once; all surface-point queries below are immutable and thread-safe.
-  const CartesianSpatialIndex spatialIndex(gridData);
+}
 
-  std::vector<InterpolatedSurfacePoint> points;
-  points.reserve(ahGuess.points.size());
+void CartesianPointInterpolator::interpolatePoints(
+  std::span<const GridCoordinate> targets,
+  std::vector<InterpolatedCartesianPoint>& output
+) const {
+  std::vector<InterpolatedCartesianPoint> reconstructed;
+  reconstructed.reserve(targets.size());
 
-  // 2. Reconstruct the Cartesian fields independently at each AH surface point.
-  for (std::size_t pointIndex = 0; pointIndex < ahGuess.points.size(); ++pointIndex) {
-    const AHGuessPoint& guessPoint = ahGuess.points[pointIndex];
-    GridCoordinate target{
-      std::numeric_limits<double>::quiet_NaN(),
-      std::numeric_limits<double>::quiet_NaN(),
-      std::numeric_limits<double>::quiet_NaN()
-    };
+  for (std::size_t pointIndex = 0; pointIndex < targets.size(); ++pointIndex) {
+    const GridCoordinate target = targets[pointIndex];
     try {
-      // 3. Convert the surface point to Cartesian coordinates and select neighbours.
-      target = SurfacePointToCartesian(guessPoint, referencePoint);
+      if (!std::isfinite(target.x) || !std::isfinite(target.y)
+          || !std::isfinite(target.z)) {
+        throw std::invalid_argument("target coordinate must be finite");
+      }
       const double outsideX = std::max(
-        {domainMinimum.x - target.x, 0.0, target.x - domainMaximum.x});
+        {_domainMinimum.x - target.x, 0.0, target.x - _domainMaximum.x});
       const double outsideY = std::max(
-        {domainMinimum.y - target.y, 0.0, target.y - domainMaximum.y});
+        {_domainMinimum.y - target.y, 0.0, target.y - _domainMaximum.y});
       const double outsideZ = std::max(
-        {domainMinimum.z - target.z, 0.0, target.z - domainMaximum.z});
-      const double outsideDistance = std::hypot(outsideX, outsideY, outsideZ);
-      if (outsideDistance > options.domainRelativeTolerance * domainDiagonal) {
+        {_domainMinimum.z - target.z, 0.0, target.z - _domainMaximum.z});
+      if (std::hypot(outsideX, outsideY, outsideZ)
+          > _options.domainRelativeTolerance * _domainDiagonal) {
         throw std::out_of_range(
           "target lies outside the sampled Cartesian domain tolerance");
       }
 
       InterpolationDiagnostics diagnostics{
-        .requestedMethod = options.method,
-        .requestedDegree = options.method == CartesianToSurfaceMethod::NearestNeighbour
-          ? 0u : options.polynomialDegree,
-        .degreeUsed = options.method == CartesianToSurfaceMethod::NearestNeighbour
-          ? 0u : options.polynomialDegree,
-        .neighbourCount = options.method == CartesianToSurfaceMethod::NearestNeighbour
-          ? 1u : options.numberOfNeighbours,
+        .requestedMethod = _options.method,
+        .requestedDegree = _options.method == CartesianToSurfaceMethod::NearestNeighbour
+          ? 0u : _options.polynomialDegree,
+        .degreeUsed = _options.method == CartesianToSurfaceMethod::NearestNeighbour
+          ? 0u : _options.polynomialDegree,
+        .neighbourCount = _options.method == CartesianToSurfaceMethod::NearestNeighbour
+          ? 1u : _options.numberOfNeighbours,
         .target = target,
-        .rank = options.method == CartesianToSurfaceMethod::NearestNeighbour ? 1u : 0u,
+        .rank = _options.method == CartesianToSurfaceMethod::NearestNeighbour ? 1u : 0u,
         .conditionEstimate = 1.0,
         .orderReduced = false
       };
 
       bool useNearestNeighbour =
-        options.method == CartesianToSurfaceMethod::NearestNeighbour;
+        _options.method == CartesianToSurfaceMethod::NearestNeighbour;
       if (!useNearestNeighbour
-          && (options.numberOfNeighbours < PolynomialBasisSize(options.polynomialDegree)
-              || options.numberOfNeighbours > gridData.coordinates.size())) {
-        if (!options.allowOrderReduction) {
+          && (_options.numberOfNeighbours < PolynomialBasisSize(_options.polynomialDegree)
+              || _options.numberOfNeighbours > _gridData->coordinates.size())) {
+        if (!_options.allowOrderReduction) {
           throw std::invalid_argument(
             "polynomial reconstruction has insufficient neighbours and order reduction is disabled");
         }
@@ -814,12 +802,10 @@ void InterpolateCartesianToSurface(
       }
 
       std::vector<std::size_t> neighbours = FindNearestGridCells(
-        spatialIndex, target, useNearestNeighbour ? 1 : options.numberOfNeighbours);
-
-      const auto validateStencilValues = [&gridData](std::span<const std::size_t> stencil) {
+        _spatialIndex, target, useNearestNeighbour ? 1 : _options.numberOfNeighbours);
+      const auto validateStencil = [this](std::span<const std::size_t> stencil) {
         for (std::size_t cellIndex : stencil) {
-          const auto row = gridData.cell(cellIndex).row();
-          for (double value : row) {
+          for (double value : _gridData->cell(cellIndex).row()) {
             if (!std::isfinite(value)) {
               throw std::invalid_argument(
                 "selected interpolation stencil contains a non-finite compact value");
@@ -827,43 +813,39 @@ void InterpolateCartesianToSurface(
           }
         }
       };
-      validateStencilValues(neighbours);
+      validateStencil(neighbours);
 
       std::array<double, NumberOfCompactFields> compactValues{};
       std::array<Vector3, NumberOfCompactFields> compactGradients{};
       bool derivativesAvailable = false;
-
-      // 4. Sample one cell directly, or reconstruct all fields with polynomial MLS.
       if (useNearestNeighbour) {
-        const auto row = gridData.cell(neighbours.front()).row();
+        const auto row = _gridData->cell(neighbours.front()).row();
         std::copy(row.begin(), row.end(), compactValues.begin());
       } else {
         const LinearReconstructionOptions reconstructionOptions{
-          .method = options.method == CartesianToSurfaceMethod::WeightedPolynomial
+          .method = _options.method == CartesianToSurfaceMethod::WeightedPolynomial
             ? LinearReconstructionMethod::WeightedMovingLeastSquares
             : LinearReconstructionMethod::Unweighted,
           .numberOfNeighbours = neighbours.size(),
-          .polynomialDegree = options.polynomialDegree,
-          .weightSupport = options.weightSupport,
-          .rankToleranceMultiplier = options.rankToleranceMultiplier
+          .polynomialDegree = _options.polynomialDegree,
+          .weightSupport = _options.weightSupport,
+          .rankToleranceMultiplier = _options.rankToleranceMultiplier
         };
         try {
           const CompactLinearFit fit = FitCompactLinearPolynomial(
-            gridData, neighbours, target, reconstructionOptions);
+            *_gridData, neighbours, target, reconstructionOptions);
           compactValues = fit.values;
           compactGradients = fit.gradients;
           derivativesAvailable = true;
           diagnostics.rank = fit.rank;
           diagnostics.conditionEstimate = fit.conditionEstimate;
         } catch (const std::invalid_argument& error) {
-          const std::string message = error.what();
-          const bool rankFailure = message.find("rank deficient") != std::string::npos;
-          if (!rankFailure || !options.allowOrderReduction) {
-            throw;
-          }
-          neighbours = FindNearestGridCells(spatialIndex, target, 1);
-          validateStencilValues(neighbours);
-          const auto row = gridData.cell(neighbours.front()).row();
+          const bool rankFailure =
+            std::string(error.what()).find("rank deficient") != std::string::npos;
+          if (!rankFailure || !_options.allowOrderReduction) throw;
+          neighbours = FindNearestGridCells(_spatialIndex, target, 1);
+          validateStencil(neighbours);
+          const auto row = _gridData->cell(neighbours.front()).row();
           std::copy(row.begin(), row.end(), compactValues.begin());
           diagnostics.degreeUsed = 0;
           diagnostics.neighbourCount = 1;
@@ -873,44 +855,31 @@ void InterpolateCartesianToSurface(
         }
       }
 
-      // 5. Unpack the fixed compact layout into conformal tensors, K, and direct phi.
       std::array<double, NumberOfSymmetricTensorComponents> gammaTildeComponents{};
       std::array<double, NumberOfSymmetricTensorComponents> ATildeComponents{};
       for (std::size_t component = 0;
-           component < NumberOfSymmetricTensorComponents;
-           ++component) {
+           component < NumberOfSymmetricTensorComponents; ++component) {
         gammaTildeComponents[component] = compactValues[component];
         ATildeComponents[component] = compactValues[component + 6];
       }
       const Tensor3 gammaTilde = UnpackSymmetricTensor(gammaTildeComponents);
       const Tensor3 ATilde = UnpackSymmetricTensor(ATildeComponents);
-      const double traceK = compactValues[static_cast<std::size_t>(CompactField::TraceK)];
+      const double traceK =
+        compactValues[static_cast<std::size_t>(CompactField::TraceK)];
       const double phi = compactValues[static_cast<std::size_t>(CompactField::Phi)];
 
-      // 6. Convert reconstructed conformal fields into physical geometry.
-      InterpolatedSurfacePoint point{
-        .r = guessPoint.r, .rho = guessPoint.rho, .sigma = guessPoint.sigma
-      };
-      point.interpolationDiagnostics = diagnostics;
-      const AnalyticCoordinateGeometry coordinateGeometry =
-        ComputeAnalyticCoordinateGeometry(target, referencePoint);
-      point.geometry.T = coordinateGeometry.T;
-      point.geometry.coordinateGradient = coordinateGeometry.gradient;
-      point.geometry.coordinateHessian = coordinateGeometry.hessian;
+      InterpolatedCartesianPoint point{.target = target, .diagnostics = diagnostics};
       point.geometry.spatialMetric = ComputePhysicalSpatialMetric(gammaTilde, phi);
       point.geometry.extrinsicCurvature =
         ComputePhysicalExtrinsicCurvature(ATilde, traceK, gammaTilde, phi);
       point.geometry.traceK = traceK;
       point.geometry.spatialMetricDerivativeAvailable = derivativesAvailable;
-
-      // 7. MLS gradients become physical metric derivatives in [k][i][j] order.
       if (derivativesAvailable) {
         Tensor3Derivative gammaTildeDerivative{};
         for (std::size_t k = 0; k < 3; ++k) {
           std::array<double, NumberOfSymmetricTensorComponents> components{};
           for (std::size_t component = 0;
-               component < NumberOfSymmetricTensorComponents;
-               ++component) {
+               component < NumberOfSymmetricTensorComponents; ++component) {
             components[component] = compactGradients[component][k];
           }
           gammaTildeDerivative[k] = UnpackSymmetricTensor(components);
@@ -924,14 +893,9 @@ void InterpolateCartesianToSurface(
           );
       }
 
-      // 8. Reject non-finite geometry before committing this surface point.
-      const auto requireFinite = [pointIndex, &target](double value, const char* name) {
+      const auto requireFinite = [](double value, const char* name) {
         if (!std::isfinite(value)) {
-          std::ostringstream message;
-          message << "InterpolateCartesianToSurface: surface point " << pointIndex
-                  << " target (" << target.x << ", " << target.y << ", " << target.z
-                  << ") produced non-finite " << name;
-          throw std::runtime_error(message.str());
+          throw std::runtime_error(std::string("produced non-finite ") + name);
         }
       };
       requireFinite(point.geometry.traceK, "trace K");
@@ -945,19 +909,80 @@ void InterpolateCartesianToSurface(
           }
         }
       }
-      points.push_back(point);
+      reconstructed.push_back(point);
     } catch (const std::exception& error) {
-      // Attach the failing point and target to every lower-level error.
       std::ostringstream message;
-      message << "InterpolateCartesianToSurface: surface point " << pointIndex
+      message << "CartesianPointInterpolator: target point " << pointIndex
               << " target (" << target.x << ", " << target.y << ", " << target.z
               << ") failed: " << error.what();
       throw std::runtime_error(message.str());
     }
   }
+  output = std::move(reconstructed);
+}
 
-  // Commit only after every point has been reconstructed successfully.
+void InterpolateCartesianToSurface(
+  const CartesianPointInterpolator& interpolator,
+  const AHGuess& ahGuess,
+  const ReferencePoint& referencePoint,
+  InterpolatedSurface& interpolatedSurface
+) {
+  std::vector<GridCoordinate> targets;
+  targets.reserve(ahGuess.points.size());
+  for (std::size_t pointIndex = 0; pointIndex < ahGuess.points.size(); ++pointIndex) {
+    try {
+      targets.push_back(SurfacePointToCartesian(ahGuess.points[pointIndex], referencePoint));
+    } catch (const std::exception& error) {
+      std::ostringstream message;
+      message << "InterpolateCartesianToSurface: surface point " << pointIndex
+              << " target (nan, nan, nan) failed: " << error.what();
+      throw std::runtime_error(message.str());
+    }
+  }
+
+  std::vector<InterpolatedCartesianPoint> cartesianPoints;
+  try {
+    interpolator.interpolatePoints(targets, cartesianPoints);
+  } catch (const std::exception& error) {
+    std::string message = error.what();
+    const std::string marker = "target point ";
+    if (const std::size_t position = message.find(marker); position != std::string::npos) {
+      message.replace(position, marker.size(), "surface point ");
+    }
+    throw std::runtime_error("InterpolateCartesianToSurface: " + message);
+  }
+
+  std::vector<InterpolatedSurfacePoint> points;
+  points.reserve(ahGuess.points.size());
+  for (std::size_t pointIndex = 0; pointIndex < ahGuess.points.size(); ++pointIndex) {
+    const AHGuessPoint& guess = ahGuess.points[pointIndex];
+    InterpolatedSurfacePoint point{
+      .r = guess.r,
+      .rho = guess.rho,
+      .sigma = guess.sigma,
+      .geometry = cartesianPoints[pointIndex].geometry,
+      .interpolationDiagnostics = cartesianPoints[pointIndex].diagnostics
+    };
+    const AnalyticCoordinateGeometry analytic =
+      ComputeAnalyticCoordinateGeometry(targets[pointIndex], referencePoint);
+    point.geometry.T = analytic.T;
+    point.geometry.coordinateGradient = analytic.gradient;
+    point.geometry.coordinateHessian = analytic.hessian;
+    points.push_back(point);
+  }
   interpolatedSurface.points = std::move(points);
+}
+
+void InterpolateCartesianToSurface(
+  const GridData& gridData,
+  const AHGuess& ahGuess,
+  const ReferencePoint& referencePoint,
+  InterpolatedSurface& interpolatedSurface,
+  const CartesianToSurfaceOptions& options
+) {
+  const CartesianPointInterpolator interpolator(gridData, options);
+  InterpolateCartesianToSurface(
+    interpolator, ahGuess, referencePoint, interpolatedSurface);
 }
 
 void InterpolateFromCartesianToShell(const GridData& gridData,

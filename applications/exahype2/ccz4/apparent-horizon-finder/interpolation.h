@@ -198,11 +198,56 @@ struct CartesianToSurfaceOptions {
   double domainRelativeTolerance = 0.05;
 };
 
+/** Physical fields reconstructed at one arbitrary Cartesian target. */
+struct InterpolatedCartesianPoint {
+  GridCoordinate target{};
+  InterpolatedGeometryData geometry{};
+  InterpolationDiagnostics diagnostics{};
+};
+
+/**
+ * Reusable Cartesian reconstruction context. The GridData supplied to the
+ * constructor must outlive this object. Its immutable spatial index is built
+ * once and reused by every interpolatePoints() call, including calls made by
+ * successive nonlinear AH iterations.
+ */
+class CartesianPointInterpolator {
+public:
+  explicit CartesianPointInterpolator(
+    const GridData& gridData,
+    const CartesianToSurfaceOptions& options = {}
+  );
+
+  /** Reconstruct physical fields in exactly the order of @p targets. */
+  void interpolatePoints(
+    std::span<const GridCoordinate> targets,
+    std::vector<InterpolatedCartesianPoint>& output
+  ) const;
+
+private:
+  const GridData* _gridData;
+  CartesianToSurfaceOptions _options;
+  CartesianSpatialIndex _spatialIndex;
+  GridCoordinate _domainMinimum{};
+  GridCoordinate _domainMaximum{};
+  double _domainDiagonal = 0.0;
+};
+
+/** Surface adapter using an already-built, persistent Cartesian interpolator. */
+void InterpolateCartesianToSurface(
+  const CartesianPointInterpolator& interpolator,
+  const AHGuess& ahGuess,
+  const ReferencePoint& referencePoint,
+  InterpolatedSurface& interpolatedSurface
+);
+
 /**
  * Interpolate compact Cartesian fields directly to every AH surface point.
  * Polynomial modes populate physical metric derivatives in [k][i][j] order,
  * where k is the Cartesian differentiation direction. Surface-shape and
  * angular derivatives are intentionally not computed.
+ * This compatibility overload builds a temporary CartesianPointInterpolator;
+ * iterative callers should use the overload above to retain its spatial index.
  */
 void InterpolateCartesianToSurface(
   const GridData& gridData,

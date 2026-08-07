@@ -948,6 +948,21 @@ void assertTensor(const Tensor3& actual, const Tensor3& expected) {
   }
 }
 
+void assertReconstructedGeometryEqual(
+  const InterpolatedGeometryData& actual,
+  const InterpolatedGeometryData& expected
+) {
+  assertTensor(actual.spatialMetric, expected.spatialMetric);
+  assertTensor(actual.extrinsicCurvature, expected.extrinsicCurvature);
+  assert(approximatelyEqual(actual.traceK, expected.traceK));
+  assert(actual.spatialMetricDerivativeAvailable
+         == expected.spatialMetricDerivativeAvailable);
+  for (std::size_t k = 0; k < 3; ++k) {
+    assertTensor(
+      actual.spatialMetricDerivative[k], expected.spatialMetricDerivative[k]);
+  }
+}
+
 void testInterpolateToSurfaceNearestNeighbour() {
   constexpr double Pi = std::numbers::pi_v<double>;
   constexpr ReferencePoint Reference{10.0, -4.0, 2.0};
@@ -1125,6 +1140,93 @@ void testInterpolateCartesianToSurfaceDegree1() {
     mlsSurface.points[0].geometry.spatialMetric[0][0]));
 
   std::cout << "Degree-1 MLS reconstructs physical surface geometry and Cartesian derivatives"
+            << std::endl;
+}
+
+void testReusableCartesianPointInterpolator() {
+  constexpr double Pi = std::numbers::pi_v<double>;
+  constexpr ReferencePoint Reference{2.0, -1.0, 0.5};
+  const AHGuess guess{.points = {
+    {.r = 1.0, .rho = 0.0, .sigma = 0.0},
+    {.r = 1.0, .rho = Pi / 2.0, .sigma = 0.0},
+    {.r = 1.0, .rho = Pi, .sigma = Pi / 6.0}
+  }};
+
+  GridData gridData;
+  gridData.resize(guess.points.size());
+  std::vector<GridCoordinate> targets;
+  for (const AHGuessPoint& point : guess.points) {
+    targets.push_back(SurfacePointToCartesian(point, Reference));
+  }
+  gridData.coordinates = targets;
+  for (std::size_t cell = 0; cell < gridData.coordinates.size(); ++cell) {
+    const double offset = static_cast<double>(10 * cell);
+    setCompactCell(gridData, cell, {
+      4.0 + offset, 0.2 + offset, 0.3 + offset,
+      5.0 + offset, 0.4 + offset, 6.0 + offset,
+      0.1 + offset, 0.2 + offset, 0.3 + offset,
+      0.4 + offset, 0.5 + offset, 0.6 + offset,
+      3.0 + offset, 2.0 + static_cast<double>(cell)
+    });
+  }
+
+  const CartesianPointInterpolator interpolator(
+    gridData,
+    {.method = CartesianToSurfaceMethod::NearestNeighbour,
+     .numberOfNeighbours = 1}
+  );
+  std::vector<InterpolatedCartesianPoint> generic;
+  interpolator.interpolatePoints(targets, generic);
+  InterpolatedSurface surface;
+  InterpolateCartesianToSurface(interpolator, guess, Reference, surface);
+  assert(generic.size() == targets.size());
+  assert(surface.points.size() == targets.size());
+  for (std::size_t point = 0; point < targets.size(); ++point) {
+    assertCoordinate(
+      generic[point].target, targets[point].x, targets[point].y, targets[point].z);
+    assert(approximatelyEqual(generic[point].geometry.traceK, 3.0 + 10.0 * point));
+    assertReconstructedGeometryEqual(
+      generic[point].geometry, surface.points[point].geometry);
+  }
+
+  // Reuse the same immutable index for another ordering and again for the
+  // original ordering, as happens across nonlinear iterations.
+  std::vector<GridCoordinate> reversedTargets(targets.rbegin(), targets.rend());
+  std::vector<InterpolatedCartesianPoint> reversed;
+  interpolator.interpolatePoints(reversedTargets, reversed);
+  for (std::size_t point = 0; point < reversed.size(); ++point) {
+    assertCoordinate(
+      reversed[point].target,
+      reversedTargets[point].x,
+      reversedTargets[point].y,
+      reversedTargets[point].z);
+    assert(approximatelyEqual(
+      reversed[point].geometry.traceK,
+      3.0 + 10.0 * static_cast<double>(targets.size() - 1 - point)));
+  }
+  std::vector<InterpolatedCartesianPoint> repeated;
+  interpolator.interpolatePoints(targets, repeated);
+  for (std::size_t point = 0; point < repeated.size(); ++point) {
+    assertReconstructedGeometryEqual(repeated[point].geometry, generic[point].geometry);
+  }
+
+  // The compatibility overload remains numerically identical, though callers
+  // doing iterations should retain the interpolator above.
+  InterpolatedSurface compatibilitySurface;
+  InterpolateCartesianToSurface(
+    gridData,
+    guess,
+    Reference,
+    compatibilitySurface,
+    {.method = CartesianToSurfaceMethod::NearestNeighbour,
+     .numberOfNeighbours = 1}
+  );
+  for (std::size_t point = 0; point < surface.points.size(); ++point) {
+    assertReconstructedGeometryEqual(
+      compatibilitySurface.points[point].geometry, surface.points[point].geometry);
+  }
+
+  std::cout << "Persistent Cartesian interpolation preserves target order and surface results"
             << std::endl;
 }
 
@@ -1350,6 +1452,7 @@ int main() {
   testFitCompactLinearPolynomial();
   testInterpolateToSurfaceNearestNeighbour();
   testInterpolateCartesianToSurfaceDegree1();
+  testReusableCartesianPointInterpolator();
   testInterpolateCartesianToSurfaceContextualFailures();
   testInterpolationValidationAndDiagnostics();
   testInterpolateFromCartesianToShell();
