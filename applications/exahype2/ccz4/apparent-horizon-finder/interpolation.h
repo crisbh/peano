@@ -111,6 +111,8 @@ struct CompactLinearFit {
   std::size_t polynomialDegree = 1;
   std::size_t rank = 0;
   double lengthScale = 0.0;
+  /** Approximate max/min absolute diagonal ratio of the pivoted R factor. */
+  double conditionEstimate = 1.0;
 };
 
 /**
@@ -125,17 +127,14 @@ CompactLinearFit FitCompactLinearPolynomial(
   const LinearReconstructionOptions& options = {}
 );
 
-enum class CartesianToSurfaceMethod {
-  NearestNeighbour,
-  UnweightedDegree1,
-  WeightedDegree1
-};
-
 struct CartesianToSurfaceOptions {
   CartesianToSurfaceMethod method = CartesianToSurfaceMethod::WeightedDegree1;
   std::size_t numberOfNeighbours = 8;
   double weightSupport = 1.0;
   double rankToleranceMultiplier = 64.0;
+  bool allowOrderReduction = false;
+  /** Allowed distance outside the grid AABB as a fraction of its diagonal. */
+  double domainRelativeTolerance = 0.05;
 };
 
 /**

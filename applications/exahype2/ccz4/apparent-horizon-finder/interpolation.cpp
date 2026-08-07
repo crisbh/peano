@@ -550,11 +550,19 @@ CompactLinearFit FitCompactLinearPolynomial(
   }
 
   // 7. Return row 0 as target values and rescale rows 1-3 into Cartesian gradients.
+  double minimumDiagonal = std::numeric_limits<double>::infinity();
+  double maximumDiagonal = 0.0;
+  for (std::size_t diagonal = 0; diagonal < BasisSize; ++diagonal) {
+    const double magnitude = std::abs(upperTriangular[diagonal][diagonal]);
+    minimumDiagonal = std::min(minimumDiagonal, magnitude);
+    maximumDiagonal = std::max(maximumDiagonal, magnitude);
+  }
   CompactLinearFit result{
     .numberOfNeighbours = neighbourIndices.size(),
     .polynomialDegree = 1,
     .rank = BasisSize,
-    .lengthScale = lengthScale
+    .lengthScale = lengthScale,
+    .conditionEstimate = maximumDiagonal / minimumDiagonal
   };
   for (std::size_t field = 0; field < FieldCount; ++field) {
     result.values[field] = coefficients[0][field];
@@ -593,6 +601,40 @@ void InterpolateCartesianToSurface(
     throw std::invalid_argument(
       "InterpolateCartesianToSurface: neighbour count must be greater than zero");
   }
+  if (gridData.coordinates.empty()) {
+    throw std::invalid_argument(
+      "InterpolateCartesianToSurface: Cartesian grid must not be empty");
+  }
+  if (!gridData.isConsistent()) {
+    throw std::invalid_argument(
+      "InterpolateCartesianToSurface: GridData value count must equal cell count times fourteen");
+  }
+  if (!std::isfinite(options.domainRelativeTolerance)
+      || options.domainRelativeTolerance < 0.0) {
+    throw std::invalid_argument(
+      "InterpolateCartesianToSurface: domain relative tolerance must be finite and non-negative");
+  }
+
+  GridCoordinate domainMinimum = gridData.coordinates.front();
+  GridCoordinate domainMaximum = gridData.coordinates.front();
+  for (const GridCoordinate& coordinate : gridData.coordinates) {
+    if (!std::isfinite(coordinate.x) || !std::isfinite(coordinate.y)
+        || !std::isfinite(coordinate.z)) {
+      throw std::invalid_argument(
+        "InterpolateCartesianToSurface: grid coordinates must be finite");
+    }
+    domainMinimum.x = std::min(domainMinimum.x, coordinate.x);
+    domainMinimum.y = std::min(domainMinimum.y, coordinate.y);
+    domainMinimum.z = std::min(domainMinimum.z, coordinate.z);
+    domainMaximum.x = std::max(domainMaximum.x, coordinate.x);
+    domainMaximum.y = std::max(domainMaximum.y, coordinate.y);
+    domainMaximum.z = std::max(domainMaximum.z, coordinate.z);
+  }
+  const double domainDiagonal = std::hypot(
+    domainMaximum.x - domainMinimum.x,
+    domainMaximum.y - domainMinimum.y,
+    domainMaximum.z - domainMinimum.z
+  );
 
   std::vector<InterpolatedSurfacePoint> points;
   points.reserve(ahGuess.points.size());
@@ -608,18 +650,68 @@ void InterpolateCartesianToSurface(
     try {
       // 3. Convert the surface point to Cartesian coordinates and select neighbours.
       target = SurfacePointToCartesian(guessPoint, referencePoint);
-      const std::size_t neighbourCount =
-        options.method == CartesianToSurfaceMethod::NearestNeighbour
-        ? 1 : options.numberOfNeighbours;
-      const std::vector<std::size_t> neighbours =
-        FindNearestGridCells(gridData, target, neighbourCount);
+      const double outsideX = std::max(
+        {domainMinimum.x - target.x, 0.0, target.x - domainMaximum.x});
+      const double outsideY = std::max(
+        {domainMinimum.y - target.y, 0.0, target.y - domainMaximum.y});
+      const double outsideZ = std::max(
+        {domainMinimum.z - target.z, 0.0, target.z - domainMaximum.z});
+      const double outsideDistance = std::hypot(outsideX, outsideY, outsideZ);
+      if (outsideDistance > options.domainRelativeTolerance * domainDiagonal) {
+        throw std::out_of_range(
+          "target lies outside the sampled Cartesian domain tolerance");
+      }
+
+      InterpolationDiagnostics diagnostics{
+        .requestedMethod = options.method,
+        .requestedDegree = options.method == CartesianToSurfaceMethod::NearestNeighbour ? 0u : 1u,
+        .degreeUsed = options.method == CartesianToSurfaceMethod::NearestNeighbour ? 0u : 1u,
+        .neighbourCount = options.method == CartesianToSurfaceMethod::NearestNeighbour
+          ? 1u : options.numberOfNeighbours,
+        .target = target,
+        .rank = options.method == CartesianToSurfaceMethod::NearestNeighbour ? 1u : 0u,
+        .conditionEstimate = 1.0,
+        .orderReduced = false
+      };
+
+      bool useNearestNeighbour =
+        options.method == CartesianToSurfaceMethod::NearestNeighbour;
+      if (!useNearestNeighbour
+          && (options.numberOfNeighbours < 4
+              || options.numberOfNeighbours > gridData.coordinates.size())) {
+        if (!options.allowOrderReduction) {
+          throw std::invalid_argument(
+            "degree-1 reconstruction has insufficient neighbours and order reduction is disabled");
+        }
+        useNearestNeighbour = true;
+        diagnostics.degreeUsed = 0;
+        diagnostics.neighbourCount = 1;
+        diagnostics.rank = 1;
+        diagnostics.orderReduced = true;
+      }
+
+      std::vector<std::size_t> neighbours = FindNearestGridCells(
+        gridData, target, useNearestNeighbour ? 1 : options.numberOfNeighbours);
+
+      const auto validateStencilValues = [&gridData](std::span<const std::size_t> stencil) {
+        for (std::size_t cellIndex : stencil) {
+          const auto row = gridData.cell(cellIndex).row();
+          for (double value : row) {
+            if (!std::isfinite(value)) {
+              throw std::invalid_argument(
+                "selected interpolation stencil contains a non-finite compact value");
+            }
+          }
+        }
+      };
+      validateStencilValues(neighbours);
 
       std::array<double, NumberOfCompactFields> compactValues{};
       std::array<Vector3, NumberOfCompactFields> compactGradients{};
       bool derivativesAvailable = false;
 
       // 4. Sample one cell directly, or reconstruct all fields with degree-1 MLS.
-      if (options.method == CartesianToSurfaceMethod::NearestNeighbour) {
+      if (useNearestNeighbour) {
         const auto row = gridData.cell(neighbours.front()).row();
         std::copy(row.begin(), row.end(), compactValues.begin());
       } else {
@@ -627,15 +719,34 @@ void InterpolateCartesianToSurface(
           .method = options.method == CartesianToSurfaceMethod::WeightedDegree1
             ? LinearReconstructionMethod::WeightedMovingLeastSquares
             : LinearReconstructionMethod::Unweighted,
-          .numberOfNeighbours = neighbourCount,
+          .numberOfNeighbours = neighbours.size(),
           .weightSupport = options.weightSupport,
           .rankToleranceMultiplier = options.rankToleranceMultiplier
         };
-        const CompactLinearFit fit = FitCompactLinearPolynomial(
-          gridData, neighbours, target, reconstructionOptions);
-        compactValues = fit.values;
-        compactGradients = fit.gradients;
-        derivativesAvailable = true;
+        try {
+          const CompactLinearFit fit = FitCompactLinearPolynomial(
+            gridData, neighbours, target, reconstructionOptions);
+          compactValues = fit.values;
+          compactGradients = fit.gradients;
+          derivativesAvailable = true;
+          diagnostics.rank = fit.rank;
+          diagnostics.conditionEstimate = fit.conditionEstimate;
+        } catch (const std::invalid_argument& error) {
+          const std::string message = error.what();
+          const bool rankFailure = message.find("rank deficient") != std::string::npos;
+          if (!rankFailure || !options.allowOrderReduction) {
+            throw;
+          }
+          neighbours = FindNearestGridCells(gridData, target, 1);
+          validateStencilValues(neighbours);
+          const auto row = gridData.cell(neighbours.front()).row();
+          std::copy(row.begin(), row.end(), compactValues.begin());
+          diagnostics.degreeUsed = 0;
+          diagnostics.neighbourCount = 1;
+          diagnostics.rank = 1;
+          diagnostics.conditionEstimate = 1.0;
+          diagnostics.orderReduced = true;
+        }
       }
 
       // 5. Unpack the fixed compact layout into conformal tensors, K, and direct phi.
@@ -656,6 +767,7 @@ void InterpolateCartesianToSurface(
       InterpolatedSurfacePoint point{
         .r = guessPoint.r, .rho = guessPoint.rho, .sigma = guessPoint.sigma
       };
+      point.interpolationDiagnostics = diagnostics;
       const AnalyticCoordinateGeometry coordinateGeometry =
         ComputeAnalyticCoordinateGeometry(target, referencePoint);
       point.geometry.T = coordinateGeometry.T;

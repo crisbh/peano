@@ -803,6 +803,141 @@ void testInterpolateCartesianToSurfaceContextualFailures() {
   assert(invalidTargetHasContext);
 }
 
+GridData makeValidationGrid() {
+  GridData gridData;
+  gridData.resize(4);
+  gridData.coordinates = {
+    {0.0, 0.0, 0.0}, {2.0, 0.0, 0.0},
+    {1.0, 1.0, 0.0}, {1.0, 0.0, 1.0}
+  };
+  for (std::size_t cell = 0; cell < gridData.coordinates.size(); ++cell) {
+    const std::array<double, NumberOfCompactFields> values{
+      1.0, 0.0, 0.0, 1.0, 0.0, 1.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 2.0
+    };
+    setCompactCell(gridData, cell, values);
+  }
+  return gridData;
+}
+
+std::string interpolationFailure(
+  const GridData& gridData,
+  const CartesianToSurfaceOptions& options
+) {
+  try {
+    InterpolatedSurface surface;
+    InterpolateCartesianToSurface(
+      gridData,
+      {.points = {{.r = 1.0, .rho = 0.0, .sigma = 0.0}}},
+      {0.0, 0.0, 0.0},
+      surface,
+      options
+    );
+  } catch (const std::exception& error) {
+    return error.what();
+  }
+  return {};
+}
+
+void testInterpolationValidationAndDiagnostics() {
+  const CartesianToSurfaceOptions degreeOne{
+    .method = CartesianToSurfaceMethod::UnweightedDegree1,
+    .numberOfNeighbours = 4
+  };
+
+  GridData malformed = makeValidationGrid();
+  malformed.values.pop_back();
+  assert(interpolationFailure(malformed, degreeOne).find("times fourteen")
+         != std::string::npos);
+
+  GridData nonFinite = makeValidationGrid();
+  nonFinite.values[2 * GridData::numberOfVariables + 4] =
+    std::numeric_limits<double>::quiet_NaN();
+  const std::string nonFiniteMessage = interpolationFailure(nonFinite, degreeOne);
+  assert(nonFiniteMessage.find("surface point 0") != std::string::npos);
+  assert(nonFiniteMessage.find("non-finite compact value") != std::string::npos);
+
+  GridData invalidPhi = makeValidationGrid();
+  for (std::size_t cell = 0; cell < invalidPhi.coordinates.size(); ++cell) {
+    invalidPhi.values[cell * GridData::numberOfVariables + 13] = -1.0;
+  }
+  const std::string phiMessage = interpolationFailure(
+    invalidPhi,
+    {.method = CartesianToSurfaceMethod::NearestNeighbour,
+     .numberOfNeighbours = 1}
+  );
+  assert(phiMessage.find("surface point 0") != std::string::npos);
+  assert(phiMessage.find("strictly positive") != std::string::npos);
+
+  GridData insufficient = makeValidationGrid();
+  insufficient.coordinates.resize(3);
+  insufficient.values.resize(3 * GridData::numberOfVariables);
+  const CartesianToSurfaceOptions fallbackDisabled{
+    .method = CartesianToSurfaceMethod::WeightedDegree1,
+    .numberOfNeighbours = 3,
+    .allowOrderReduction = false
+  };
+  const std::string insufficientMessage =
+    interpolationFailure(insufficient, fallbackDisabled);
+  assert(insufficientMessage.find("insufficient neighbours") != std::string::npos);
+  assert(insufficientMessage.find("surface point 0") != std::string::npos);
+
+  InterpolatedSurface reducedSurface;
+  InterpolateCartesianToSurface(
+    insufficient,
+    {.points = {{.r = 1.0, .rho = 0.0, .sigma = 0.0}}},
+    {0.0, 0.0, 0.0},
+    reducedSurface,
+    {.method = CartesianToSurfaceMethod::WeightedDegree1,
+     .numberOfNeighbours = 3,
+     .allowOrderReduction = true}
+  );
+  const InterpolationDiagnostics& reduced =
+    reducedSurface.points[0].interpolationDiagnostics;
+  assert(reduced.requestedMethod == CartesianToSurfaceMethod::WeightedDegree1);
+  assert(reduced.requestedDegree == 1);
+  assert(reduced.degreeUsed == 0);
+  assert(reduced.neighbourCount == 1);
+  assert(reduced.rank == 1);
+  assert(reduced.conditionEstimate == 1.0);
+  assert(reduced.orderReduced);
+  assertCoordinate(reduced.target, 1.0, 0.0, 0.0);
+  assert(!reducedSurface.points[0].geometry.spatialMetricDerivativeAvailable);
+
+  GridData rankDeficient = makeValidationGrid();
+  rankDeficient.coordinates = {
+    {0.0, 0.0, 0.0}, {2.0, 0.0, 0.0},
+    {0.0, 1.0, 0.0}, {2.0, 1.0, 0.0}
+  };
+  const std::string rankMessage = interpolationFailure(rankDeficient, degreeOne);
+  assert(rankMessage.find("rank deficient") != std::string::npos);
+  assert(rankMessage.find("surface point 0") != std::string::npos);
+
+  InterpolatedSurface successfulSurface;
+  InterpolateCartesianToSurface(
+    makeValidationGrid(),
+    {.points = {{.r = 1.0, .rho = 0.0, .sigma = 0.0}}},
+    {0.0, 0.0, 0.0},
+    successfulSurface,
+    degreeOne
+  );
+  const InterpolationDiagnostics& successful =
+    successfulSurface.points[0].interpolationDiagnostics;
+  assert(successful.requestedMethod == CartesianToSurfaceMethod::UnweightedDegree1);
+  assert(successful.requestedDegree == 1);
+  assert(successful.degreeUsed == 1);
+  assert(successful.neighbourCount == 4);
+  assert(successful.rank == 4);
+  assert(std::isfinite(successful.conditionEstimate));
+  assert(successful.conditionEstimate >= 1.0);
+  assert(!successful.orderReduced);
+  assertCoordinate(successful.target, 1.0, 0.0, 0.0);
+
+  std::cout << "Interpolation validation records successful and reduced-order diagnostics"
+            << std::endl;
+}
+
 void testInterpolateFromCartesianToShell() {
   std::cout << "Placeholder test for InterpolateFromCartesianToShell" << std::endl;
 }
@@ -833,6 +968,7 @@ int main() {
   testInterpolateToSurfaceNearestNeighbour();
   testInterpolateCartesianToSurfaceDegree1();
   testInterpolateCartesianToSurfaceContextualFailures();
+  testInterpolationValidationAndDiagnostics();
   testInterpolateFromCartesianToShell();
   testInterpolateFromShellToSurface();
 

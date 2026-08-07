@@ -57,6 +57,23 @@ struct GridCoordinate {
   double z;
 };
 
+enum class CartesianToSurfaceMethod {
+  NearestNeighbour,
+  UnweightedDegree1,
+  WeightedDegree1
+};
+
+struct InterpolationDiagnostics {
+  CartesianToSurfaceMethod requestedMethod = CartesianToSurfaceMethod::NearestNeighbour;
+  std::size_t requestedDegree = 0;
+  std::size_t degreeUsed = 0;
+  std::size_t neighbourCount = 0;
+  GridCoordinate target{};
+  std::size_t rank = 0;
+  double conditionEstimate = 1.0;
+  bool orderReduced = false;
+};
+
 /**
  * Fixed column layout of every compact row stored in GridData.
  *
@@ -609,6 +626,7 @@ struct InterpolatedSurfacePoint {
   Vector3 surfaceNormal{};             // s_i
   Tensor3 surfaceNormalDerivative{};   // partial_i s_j
   InterpolatedGeometryData geometry{};
+  InterpolationDiagnostics interpolationDiagnostics{};
 };
 
 /**
