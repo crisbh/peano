@@ -60,6 +60,105 @@ GridCoordinate SurfacePointToCartesian(
   };
 }
 
+Tensor3 ComputeRadialProjectionTensor(const GridCoordinate& relativeCoordinate) {
+  if (!std::isfinite(relativeCoordinate.x)
+      || !std::isfinite(relativeCoordinate.y)
+      || !std::isfinite(relativeCoordinate.z)) {
+    throw std::invalid_argument(
+      "ComputeRadialProjectionTensor: relative coordinate must be finite");
+  }
+  const Vector3 x{relativeCoordinate.x, relativeCoordinate.y, relativeCoordinate.z};
+  const double radiusSquared = x[0] * x[0] + x[1] * x[1] + x[2] * x[2];
+  Tensor3 T{};
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = i; j < 3; ++j) {
+      T[i][j] = (i == j ? radiusSquared : 0.0) - x[i] * x[j];
+      T[j][i] = T[i][j];
+    }
+  }
+  return T;
+}
+
+AnalyticCoordinateGeometry ComputeAnalyticCoordinateGeometry(
+  const GridCoordinate& globalCoordinate,
+  const ReferencePoint& referencePoint
+) {
+  constexpr double MinimumAbsoluteCosSigma = 1.0e-12;
+  if (!std::isfinite(globalCoordinate.x) || !std::isfinite(globalCoordinate.y)
+      || !std::isfinite(globalCoordinate.z) || !std::isfinite(referencePoint.x)
+      || !std::isfinite(referencePoint.y) || !std::isfinite(referencePoint.z)) {
+    throw std::invalid_argument(
+      "ComputeAnalyticCoordinateGeometry: coordinates must be finite");
+  }
+  const GridCoordinate relative{
+    globalCoordinate.x - referencePoint.x,
+    globalCoordinate.y - referencePoint.y,
+    globalCoordinate.z - referencePoint.z
+  };
+  const double cylindricalRadius = std::hypot(relative.x, relative.y);
+  const double radius = std::hypot(cylindricalRadius, relative.z);
+  if (!(radius > 0.0) || !std::isfinite(radius)) {
+    throw std::invalid_argument(
+      "ComputeAnalyticCoordinateGeometry: radius must be finite and positive");
+  }
+  const double cosSigma = cylindricalRadius / radius;
+  if (std::abs(cosSigma) < MinimumAbsoluteCosSigma) {
+    throw std::domain_error(
+      "ComputeAnalyticCoordinateGeometry: longitude coordinate is singular near cos(sigma)=0");
+  }
+
+  const double rho = std::atan2(relative.y, relative.x);
+  const double sigma = std::atan2(relative.z, cylindricalRadius);
+  const double sinRho = std::sin(rho);
+  const double cosRho = std::cos(rho);
+  const double sinSigma = std::sin(sigma);
+  const double inverseRadius = 1.0 / radius;
+  const double inverseRadiusSquared = inverseRadius * inverseRadius;
+  const double inverseRadiusCosSigma = inverseRadius / cosSigma;
+  const double inverseRadiusSquaredCosSigmaSquared =
+    inverseRadiusSquared / (cosSigma * cosSigma);
+
+  AnalyticCoordinateGeometry result;
+  result.T = ComputeRadialProjectionTensor(relative);
+
+  // X^u_i is stored as [u][i], with u=(rho,sigma) and i=(x,y,z).
+  result.gradient[0] = {
+    -sinRho * inverseRadiusCosSigma,
+    cosRho * inverseRadiusCosSigma,
+    0.0
+  };
+  result.gradient[1] = {
+    -cosRho * sinSigma * inverseRadius,
+    -sinRho * sinSigma * inverseRadius,
+    cosSigma * inverseRadius
+  };
+
+  // X^u_ij is stored symmetrically as [u][i][j].
+  Tensor3& rhoHessian = result.hessian[0];
+  rhoHessian[0][0] = std::sin(2.0 * rho) * inverseRadiusSquaredCosSigmaSquared;
+  rhoHessian[0][1] =
+    -std::cos(2.0 * rho) * inverseRadiusSquaredCosSigmaSquared;
+  rhoHessian[1][0] = rhoHessian[0][1];
+  rhoHessian[1][1] = -rhoHessian[0][0];
+
+  Tensor3& sigmaHessian = result.hessian[1];
+  const double tanSigma = std::tan(sigma);
+  const double cosTwoSigma = std::cos(2.0 * sigma);
+  sigmaHessian[0][0] = tanSigma * inverseRadiusSquared
+    * (2.0 * cosSigma * cosSigma * cosRho * cosRho - sinRho * sinRho);
+  sigmaHessian[0][1] = 0.5 * std::sin(2.0 * rho) * inverseRadiusSquared
+    * (std::sin(2.0 * sigma) + tanSigma);
+  sigmaHessian[1][0] = sigmaHessian[0][1];
+  sigmaHessian[0][2] = -cosRho * cosTwoSigma * inverseRadiusSquared;
+  sigmaHessian[2][0] = sigmaHessian[0][2];
+  sigmaHessian[1][1] = tanSigma * inverseRadiusSquared
+    * (2.0 * cosSigma * cosSigma * sinRho * sinRho - cosRho * cosRho);
+  sigmaHessian[1][2] = -sinRho * cosTwoSigma * inverseRadiusSquared;
+  sigmaHessian[2][1] = sigmaHessian[1][2];
+  sigmaHessian[2][2] = -std::sin(2.0 * sigma) * inverseRadiusSquared;
+  return result;
+}
+
 std::vector<std::size_t> FindNearestGridCells(
   const GridData& gridData,
   const GridCoordinate& target,
@@ -557,6 +656,11 @@ void InterpolateCartesianToSurface(
       InterpolatedSurfacePoint point{
         .r = guessPoint.r, .rho = guessPoint.rho, .sigma = guessPoint.sigma
       };
+      const AnalyticCoordinateGeometry coordinateGeometry =
+        ComputeAnalyticCoordinateGeometry(target, referencePoint);
+      point.geometry.T = coordinateGeometry.T;
+      point.geometry.coordinateGradient = coordinateGeometry.gradient;
+      point.geometry.coordinateHessian = coordinateGeometry.hessian;
       point.geometry.spatialMetric = ComputePhysicalSpatialMetric(gammaTilde, phi);
       point.geometry.extrinsicCurvature =
         ComputePhysicalExtrinsicCurvature(ATilde, traceK, gammaTilde, phi);

@@ -109,6 +109,105 @@ void testInvalidSurfacePointToCartesianInputs() {
   expectSurfaceCoordinateRejected({1.0, 0.0, 0.0}, {0.0, infinity, 0.0}, "must be finite");
 }
 
+void testAnalyticCoordinateGeometry() {
+  const Tensor3 expectedX{{
+    {{0.0, 0.0, 0.0}}, {{0.0, 4.0, 0.0}}, {{0.0, 0.0, 4.0}}
+  }};
+  const Tensor3 expectedY{{
+    {{4.0, 0.0, 0.0}}, {{0.0, 0.0, 0.0}}, {{0.0, 0.0, 4.0}}
+  }};
+  const Tensor3 expectedZ{{
+    {{4.0, 0.0, 0.0}}, {{0.0, 4.0, 0.0}}, {{0.0, 0.0, 0.0}}
+  }};
+  assert(ComputeRadialProjectionTensor({2.0, 0.0, 0.0}) == expectedX);
+  assert(ComputeRadialProjectionTensor({0.0, 2.0, 0.0}) == expectedY);
+  assert(ComputeRadialProjectionTensor({0.0, 0.0, 2.0}) == expectedZ);
+
+  const Tensor3 expectedGeneral{{
+    {{13.0, -2.0, -3.0}}, {{-2.0, 10.0, -6.0}}, {{-3.0, -6.0, 5.0}}
+  }};
+  const Tensor3 general = ComputeRadialProjectionTensor({1.0, 2.0, 3.0});
+  assert(general == expectedGeneral);
+  for (std::size_t i = 0; i < 3; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      assert(general[i][j] == general[j][i]);
+    }
+  }
+
+  const AnalyticCoordinateGeometry originGeometry =
+    ComputeAnalyticCoordinateGeometry({1.0, 2.0, 3.0}, {0.0, 0.0, 0.0});
+  const AnalyticCoordinateGeometry shiftedGeometry =
+    ComputeAnalyticCoordinateGeometry({5.0, 1.0, 5.0}, {4.0, -1.0, 2.0});
+  assert(originGeometry.T == shiftedGeometry.T);
+  assert(originGeometry.gradient == shiftedGeometry.gradient);
+  assert(originGeometry.hessian == shiftedGeometry.hessian);
+}
+
+void testAnalyticCoordinateDerivativesAgainstFiniteDifferences() {
+  constexpr ReferencePoint Reference{1.5, -0.75, 0.4};
+  const GridCoordinate global =
+    SurfacePointToCartesian({2.0, 0.6, 0.35}, Reference);
+  const AnalyticCoordinateGeometry analytic =
+    ComputeAnalyticCoordinateGeometry(global, Reference);
+  constexpr double Step = 1.0e-5;
+
+  const auto angles = [&Reference](const GridCoordinate& point) {
+    const double x = point.x - Reference.x;
+    const double y = point.y - Reference.y;
+    const double z = point.z - Reference.z;
+    return std::array<double, 2>{
+      std::atan2(y, x), std::atan2(z, std::hypot(x, y))
+    };
+  };
+  for (std::size_t direction = 0; direction < 3; ++direction) {
+    GridCoordinate plus = global;
+    GridCoordinate minus = global;
+    if (direction == 0) {
+      plus.x += Step;
+      minus.x -= Step;
+    } else if (direction == 1) {
+      plus.y += Step;
+      minus.y -= Step;
+    } else {
+      plus.z += Step;
+      minus.z -= Step;
+    }
+    const auto plusAngles = angles(plus);
+    const auto minusAngles = angles(minus);
+    for (std::size_t u = 0; u < 2; ++u) {
+      const double finiteDifference =
+        (plusAngles[u] - minusAngles[u]) / (2.0 * Step);
+      assert(std::abs(analytic.gradient[u][direction] - finiteDifference) < 1.0e-9);
+    }
+
+    const AnalyticCoordinateGeometry plusGeometry =
+      ComputeAnalyticCoordinateGeometry(plus, Reference);
+    const AnalyticCoordinateGeometry minusGeometry =
+      ComputeAnalyticCoordinateGeometry(minus, Reference);
+    for (std::size_t u = 0; u < 2; ++u) {
+      for (std::size_t component = 0; component < 3; ++component) {
+        const double finiteDifference =
+          (plusGeometry.gradient[u][component]
+           - minusGeometry.gradient[u][component]) / (2.0 * Step);
+        assert(std::abs(
+          analytic.hessian[u][component][direction] - finiteDifference) < 1.0e-8);
+      }
+    }
+  }
+
+  bool poleRejected = false;
+  try {
+    (void)ComputeAnalyticCoordinateGeometry(
+      {Reference.x + 1.0e-14, Reference.y, Reference.z + 1.0}, Reference);
+  } catch (const std::domain_error& error) {
+    poleRejected = std::string(error.what()).find("cos(sigma)=0") != std::string::npos;
+  }
+  assert(poleRejected);
+
+  std::cout << "Analytic angular coordinate geometry matches Cartesian finite differences"
+            << std::endl;
+}
+
 void expectNeighbourSearchRejected(
   const GridData& gridData,
   const GridCoordinate& target,
@@ -581,7 +680,7 @@ void testInterpolateCartesianToSurfaceDegree1() {
   const AHGuess ahGuess{.points = {
     {.r = 0.5, .rho = 0.0, .sigma = 0.0},
     {.r = 0.5, .rho = Pi / 2.0, .sigma = 0.0},
-    {.r = 0.5, .rho = 0.0, .sigma = Pi / 2.0}
+    {.r = 0.5, .rho = 0.0, .sigma = Pi / 6.0}
   }};
   InterpolatedSurface mlsSurface;
   InterpolateCartesianToSurface(
@@ -721,6 +820,8 @@ int main() {
 
   testSurfacePointToCartesian();
   testInvalidSurfacePointToCartesianInputs();
+  testAnalyticCoordinateGeometry();
+  testAnalyticCoordinateDerivativesAgainstFiniteDifferences();
   testFindNearestGridCells();
   testInvalidNearestGridCellInputs();
   testFitLinearPolynomialExactReproduction();

@@ -19,6 +19,28 @@ GridCoordinate SurfacePointToCartesian(
   const ReferencePoint& referencePoint
 );
 
+struct AnalyticCoordinateGeometry {
+  Tensor3 T{};
+  /** [u][i], with u=0 for rho, u=1 for sigma, and i=x,y,z. */
+  std::array<Vector3, 2> gradient{};
+  /** [u][i][j] = partial_i partial_j u, with u=0 rho and u=1 sigma. */
+  std::array<Tensor3, 2> hessian{};
+};
+
+/** Compute T_ij = r^2 delta_ij - x_i x_j from relative coordinates. */
+Tensor3 ComputeRadialProjectionTensor(const GridCoordinate& relativeCoordinate);
+
+/**
+ * Compute the appendix's analytic rho/sigma coordinate geometry. Global input
+ * is translated by @p referencePoint before evaluating every formula.
+ * Longitude is undefined near |cos(sigma)|=0, so poles are rejected rather
+ * than assigned an artificial treatment.
+ */
+AnalyticCoordinateGeometry ComputeAnalyticCoordinateGeometry(
+  const GridCoordinate& globalCoordinate,
+  const ReferencePoint& referencePoint
+);
+
 /**
  * Return the indices of the @p neighbourCount nearest Cartesian cell centres.
  * Results are ordered by increasing squared Euclidean distance, with cell index
