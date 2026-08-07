@@ -15,6 +15,7 @@ set(AHF_CORE_SOURCES
   harmonics.cpp
   expansion.cpp
   assemble-matrix.cpp
+  spectral-solver.cpp
   iteration.cpp
 )
 
@@ -28,6 +29,8 @@ set(AHF_CORE_HEADERS
   harmonics.h
   expansion.h
   assemble-matrix.h
+  dense-linear-algebra.h
+  spectral-solver.h
   iteration.h
 )
 
@@ -110,6 +113,10 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-harmonics-tests test/harmonics/HarmonicsTests.cpp)
   target_link_libraries(ahf-harmonics-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-harmonics-tests COMMAND ahf-harmonics-tests)
+
+  add_executable(ahf-spectral-solver-tests test/spectral-solver/SpectralSolverTests.cpp)
+  target_link_libraries(ahf-spectral-solver-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-spectral-solver-tests COMMAND ahf-spectral-solver-tests)
 
   add_executable(ahf-iteration-tests test/iteration/IterationTests.cpp)
   target_link_libraries(ahf-iteration-tests PRIVATE ApparentHorizonFinderCore)
