@@ -12,6 +12,7 @@ endif()
 set(AHF_CORE_SOURCES
   output.cpp
   interpolation.cpp
+  harmonics.cpp
   expansion.cpp
   assemble-matrix.cpp
   iteration.cpp
@@ -24,6 +25,7 @@ set(AHF_CORE_HEADERS
   output.h
   interpolation.h
   tensor-algebra.h
+  harmonics.h
   expansion.h
   assemble-matrix.h
   iteration.h
@@ -104,6 +106,10 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-assemble-matrix-tests test/assemble-matrix/AssembleMatrixTests.cpp)
   target_link_libraries(ahf-assemble-matrix-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-assemble-matrix-tests COMMAND ahf-assemble-matrix-tests)
+
+  add_executable(ahf-harmonics-tests test/harmonics/HarmonicsTests.cpp)
+  target_link_libraries(ahf-harmonics-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-harmonics-tests COMMAND ahf-harmonics-tests)
 
   add_executable(ahf-iteration-tests test/iteration/IterationTests.cpp)
   target_link_libraries(ahf-iteration-tests PRIVATE ApparentHorizonFinderCore)
