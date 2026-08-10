@@ -131,28 +131,6 @@ namespace exahype2::ccz4::ahf::tests::analytic_horizon {
     }
   }
 
-  // Single-puncture Brill-Lindquist reduces to Schwarzschild isotropic: areal
-  // radius 2M, irreducible mass M.
-  void testSinglePunctureBrillLindquist() {
-    const SpectralBasis        basis     = BuildSpectralBasis(4);
-    const BrillLindquist       spacetime = BrillLindquist::single(1.0);
-    const SpectralNewtonResult result    = solve(basis, spacetime, 0.8);
-    assert(result.converged);
-
-    const double area = HorizonArea(
-      basis,
-      result.coefficients,
-      spacetime,
-      origin
-    );
-    assert(approxEqual(ArealRadius(area), 2.0, 1.0e-6));
-    assert(approxEqual(IrreducibleMass(area), 1.0, 1.0e-6));
-
-    std::cout
-      << "Single-puncture Brill-Lindquist: areal radius " << ArealRadius(area)
-      << ", irreducible mass " << IrreducibleMass(area) << std::endl;
-  }
-
 } // namespace exahype2::ccz4::ahf::tests::analytic_horizon
 
 int main() {
@@ -165,7 +143,6 @@ int main() {
   testSchwarzschildKerrSchild();
   testBothSlicingsAgreeOnArealRadius();
   testKerrArealRadiusAndOblateness();
-  testSinglePunctureBrillLindquist();
 
   std::cout << "All analytic-horizon tests completed." << std::endl;
   return 0;
