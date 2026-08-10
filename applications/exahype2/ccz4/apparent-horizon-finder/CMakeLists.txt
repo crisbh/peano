@@ -139,6 +139,10 @@ if(ENABLE_CCZ4_AHF_TESTS)
   target_link_libraries(ahf-analytic-horizon-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-analytic-horizon-tests COMMAND ahf-analytic-horizon-tests)
 
+  add_executable(ahf-brill-lindquist-tests test/brill-lindquist/BrillLindquistTests.cpp)
+  target_link_libraries(ahf-brill-lindquist-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-brill-lindquist-tests COMMAND ahf-brill-lindquist-tests)
+
   add_executable(ahf-iteration-tests test/iteration/IterationTests.cpp)
   target_link_libraries(ahf-iteration-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-iteration-tests COMMAND ahf-iteration-tests)

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <complex>
 #include <numbers>
+#include <stdexcept>
 #include <vector>
 
 namespace exahype2::ccz4::ahf {
@@ -58,7 +59,7 @@ namespace exahype2::ccz4::ahf {
   } // namespace detail
 
   /**
-   * Schwarzschild in isotropic coordinates (time symmetric, K_ij = 0). 
+   * Schwarzschild in isotropic coordinates (time symmetric, K_ij = 0).
    * Horizon at the isotropic coordinate radius r = M/2.
    */
   struct SchwarzschildIsotropic {
@@ -84,7 +85,7 @@ namespace exahype2::ccz4::ahf {
     // Time-symmetric slice: beta = 0 and partial_t gamma = 0, so K_ij = 0 for
     // any lapse.
     // The static isotropic lapse vanishes at the horizon, which
-    // would make the K_ij = (D beta)/(2 alpha) evaluation a spurious 0/0. 
+    // would make the K_ij = (D beta)/(2 alpha) evaluation a spurious 0/0.
     // use alpha = 1.
     template <class T> T alpha(const FieldVector<T>&) const { return T(1.0); }
 
@@ -186,13 +187,16 @@ namespace exahype2::ccz4::ahf {
     }
 
     double horizonRadius() const { return M + std::sqrt(M * M - a * a); }
-    double horizonArea() const { return 8.0 * std::numbers::pi * M * horizonRadius(); }
+    double horizonArea() const {
+      return 8.0 * std::numbers::pi * M * horizonRadius();
+    }
   };
 
   /**
-   * Brill-Lindquist multi-puncture initial data (time symmetric, K_ij = 0). A
-   * conformally flat slice with psi = 1 + sum_n m_n / (2 |X - p_n|). 
-   * Note: A single puncture at the origin reduces exactly to SchwarzschildIsotropic. 
+   * Brill-Lindquist multi-puncture initial data (time symmetric, K_ij = 0). 
+   * A conformally flat slice with psi = 1 + sum_n m_n / (2 |X - p_n|).
+   * Note: A single puncture at the origin reduces exactly to
+   * SchwarzschildIsotropic.
    */
   struct BrillLindquist {
     std::vector<std::pair<double, FieldVector<double>>> punctures;
@@ -233,10 +237,47 @@ namespace exahype2::ccz4::ahf {
       return total;
     }
 
-    /** Bare mass of the sole puncture (single-puncture slices only). */
-    double M() const { return punctures.at(0).first; }
+    /** Bare mass of the sole puncture; defined only for single-puncture slices.
+     */
+    double M() const {
+      if (punctures.size() != 1) {
+        throw std::logic_error(
+          "BrillLindquist::M is only defined for a single-puncture slice"
+        );
+      }
+      return punctures.front().first;
+    }
     double horizonRadius() const { return 0.5 * M(); }
     double horizonArea() const { return 16.0 * std::numbers::pi * M() * M(); }
+
+    /** Mass-weighted centroid of the punctures (natural common-horizon centre).
+     */
+    FieldVector<double> centroid() const {
+      FieldVector<double> sum{0.0, 0.0, 0.0};
+      for (const auto& puncture : punctures) {
+        for (int i = 0; i < 3; ++i) {
+          sum[i] += puncture.first * puncture.second[i];
+        }
+      }
+      const double mass = admMass();
+      for (int i = 0; i < 3; ++i) {
+        sum[i] /= mass;
+      }
+      return sum;
+    }
+
+    /** Puncture positions, in construction order. */
+    std::vector<FieldVector<double>> puncturePositions() const {
+      std::vector<FieldVector<double>> positions;
+      positions.reserve(punctures.size());
+      for (const auto& puncture : punctures) {
+        positions.push_back(puncture.second);
+      }
+      return positions;
+    }
+
+    enum class Axis { X = 0, Y = 1, Z = 2 };
+    enum class Plane { XY, XZ, YZ };
 
     /** One puncture of mass m at center (equals Schwarzschild isotropic). */
     static BrillLindquist single(
@@ -245,12 +286,69 @@ namespace exahype2::ccz4::ahf {
     ) {
       return BrillLindquist{{{m, center}}};
     }
+
+    /** Two equal punctures of mass m at +/- separation/2 along axis. */
+    static BrillLindquist binary(
+      double m          = 1.0,
+      double separation = 2.0,
+      Axis   axis       = Axis::Z
+    ) {
+      FieldVector<double> half{0.0, 0.0, 0.0};
+      half[static_cast<int>(axis)] = 0.5 * separation;
+      const FieldVector<double> minusHalf{-half[0], -half[1], -half[2]};
+      return BrillLindquist{{{m, half}, {m, minusHalf}}};
+    }
+
+    /**
+     * Three equal punctures of mass m on an equilateral triangle of side length
+     * separation, centred on the origin, in the chosen coordinate plane.
+     * Placing the triangle in-plane makes the common horizon genuinely
+     * non-axisymmetric (three-fold symmetry, exciting the m = +/- 3 azimuthal
+     * harmonics).
+     */
+    static BrillLindquist triangle(
+      double m          = 1.0,
+      double separation = 1.5,
+      Plane  plane      = Plane::XY
+    ) {
+      const double circumradius = separation / std::sqrt(3.0); // from side
+                                                               // length
+      const double degToRad  = std::numbers::pi / 180.0;
+      const double angles[3] = {
+        90.0 * degToRad,
+        210.0 * degToRad,
+        330.0 * degToRad};
+      int a0 = 0;
+      int a1 = 1;
+      switch (plane) {
+      case Plane::XY:
+        a0 = 0;
+        a1 = 1;
+        break;
+      case Plane::XZ:
+        a0 = 0;
+        a1 = 2;
+        break;
+      case Plane::YZ:
+        a0 = 1;
+        a1 = 2;
+        break;
+      }
+      std::vector<std::pair<double, FieldVector<double>>> punctures;
+      for (double angle : angles) {
+        FieldVector<double> p{0.0, 0.0, 0.0};
+        p[a0] = circumradius * std::cos(angle);
+        p[a1] = circumradius * std::sin(angle);
+        punctures.push_back({m, p});
+      }
+      return BrillLindquist{punctures};
+    }
   };
 
   /**
    * Geometry derived from an analytic spacetime at the Cartesian point X,
    * packed into the same InterpolatedGeometryData that the grid-interpolation
-   * path uses. 
+   * path uses.
    * Fills spatialMetric gamma_ij, spatialMetricDerivative partial_k
    * gamma_ij, extrinsicCurvature K_ij and traceK; the coordinate-transform
    * fields (T, coordinateGradient, coordinateHessian) are left untouched

@@ -4,6 +4,7 @@
 #include "interpolation.h"
 #include "surface-geometry.h"
 
+#include <limits>
 #include <stdexcept>
 
 namespace exahype2::ccz4::ahf {
@@ -70,16 +71,29 @@ namespace exahype2::ccz4::ahf {
       [&basis, geometryAt, referencePoint](
         const std::vector<double>& coefficients
       ) -> std::vector<double> {
-        const InterpolatedSurface surface = BuildSurface(
-          basis,
-          coefficients,
-          geometryAt,
-          referencePoint
-        );
-        std::vector<std::vector<double>> matrixCoefficients;
-        std::vector<double>              residuals;
-        AssembleGlobalMatrix(surface, basis, matrixCoefficients, residuals);
-        return residuals;
+        try {
+          const InterpolatedSurface surface = BuildSurface(
+            basis,
+            coefficients,
+            geometryAt,
+            referencePoint
+          );
+          std::vector<std::vector<double>> matrixCoefficients;
+          std::vector<double>              residuals;
+          AssembleGlobalMatrix(surface, basis, matrixCoefficients, residuals);
+          return residuals;
+        } catch (const std::exception&) {
+          // An invalid trial surface (non-positive radius, degenerate geometry)
+          // can arise mid-solve, e.g. a full Newton step overshoots and drives
+          // h non-positive at some collocation point.
+          // Return a non-finite residual rather than propagate the exception, so the solver's line
+          // search backs the step off and its runaway guard can flag a genuine
+          // divergence.
+          return std::vector<double>(
+            basis.nModes,
+            std::numeric_limits<double>::quiet_NaN()
+          );
+        }
       };
   }
 
