@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <complex>
+#include <numbers>
 #include <vector>
 
 namespace exahype2::ccz4::ahf {
@@ -88,7 +89,7 @@ namespace exahype2::ccz4::ahf {
     template <class T> T alpha(const FieldVector<T>&) const { return T(1.0); }
 
     double horizonRadius() const { return 0.5 * M; }
-    double horizonArea() const { return 16.0 * M_PI * M * M; }
+    double horizonArea() const { return 16.0 * std::numbers::pi * M * M; }
   };
 
   /**
@@ -123,7 +124,7 @@ namespace exahype2::ccz4::ahf {
     }
 
     double horizonRadius() const { return 2.0 * M; }
-    double horizonArea() const { return 16.0 * M_PI * M * M; }
+    double horizonArea() const { return 16.0 * std::numbers::pi * M * M; }
   };
 
   /**
@@ -185,7 +186,7 @@ namespace exahype2::ccz4::ahf {
     }
 
     double horizonRadius() const { return M + std::sqrt(M * M - a * a); }
-    double horizonArea() const { return 8.0 * M_PI * M * horizonRadius(); }
+    double horizonArea() const { return 8.0 * std::numbers::pi * M * horizonRadius(); }
   };
 
   /**
@@ -235,7 +236,7 @@ namespace exahype2::ccz4::ahf {
     /** Bare mass of the sole puncture (single-puncture slices only). */
     double M() const { return punctures.at(0).first; }
     double horizonRadius() const { return 0.5 * M(); }
-    double horizonArea() const { return 16.0 * M_PI * M() * M(); }
+    double horizonArea() const { return 16.0 * std::numbers::pi * M() * M(); }
 
     /** One puncture of mass m at center (equals Schwarzschild isotropic). */
     static BrillLindquist single(

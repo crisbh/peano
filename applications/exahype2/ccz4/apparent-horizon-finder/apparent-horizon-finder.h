@@ -15,6 +15,10 @@
 #include "assemble-matrix.h"
 #include "dense-linear-algebra.h"
 #include "spectral-solver.h"
+#include "spacetimes.h"
+#include "surface-residual.h"
+#include "analytic-residual.h"
+#include "diagnostics.h"
 #include "iteration.h"
 
 #endif  // APPARENT_HORIZON_FINDER_H_
