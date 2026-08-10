@@ -17,6 +17,9 @@ set(AHF_CORE_SOURCES
   expansion.cpp
   assemble-matrix.cpp
   spectral-solver.cpp
+  spacetimes.cpp
+  surface-residual.cpp
+  diagnostics.cpp
   iteration.cpp
 )
 
@@ -33,6 +36,10 @@ set(AHF_CORE_HEADERS
   assemble-matrix.h
   dense-linear-algebra.h
   spectral-solver.h
+  spacetimes.h
+  surface-residual.h
+  analytic-residual.h
+  diagnostics.h
   iteration.h
 )
 
@@ -123,6 +130,14 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-spectral-solver-tests test/spectral-solver/SpectralSolverTests.cpp)
   target_link_libraries(ahf-spectral-solver-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-spectral-solver-tests COMMAND ahf-spectral-solver-tests)
+
+  add_executable(ahf-spacetimes-tests test/spacetimes/SpacetimeTests.cpp)
+  target_link_libraries(ahf-spacetimes-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-spacetimes-tests COMMAND ahf-spacetimes-tests)
+
+  add_executable(ahf-analytic-horizon-tests test/analytic-horizon/AnalyticHorizonTests.cpp)
+  target_link_libraries(ahf-analytic-horizon-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-analytic-horizon-tests COMMAND ahf-analytic-horizon-tests)
 
   add_executable(ahf-iteration-tests test/iteration/IterationTests.cpp)
   target_link_libraries(ahf-iteration-tests PRIVATE ApparentHorizonFinderCore)
