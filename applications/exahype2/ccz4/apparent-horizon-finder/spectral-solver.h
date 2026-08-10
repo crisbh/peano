@@ -18,8 +18,7 @@ namespace exahype2::ccz4::ahf {
 using SpectralResidual = std::function<std::vector<double>(const std::vector<double>&)>;
 
 /**
- * Parameters for the damped Newton solve. Defaults mirror the prototype
- * ahf/solver.py.
+ * Parameters for the damped Newton solve.
  */
 struct SpectralNewtonOptions {
   double tolerance = 1.0e-10;            ///< convergence threshold on ||R||_inf

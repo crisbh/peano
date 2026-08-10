@@ -49,8 +49,7 @@ Tensor3 identityMetric() {
 // Schwarzschild in isotropic coordinates (gamma_ij = psi^4 delta_ij,
 // psi = 1 + M/2r, K_ij = 0) has its horizon at the coordinate radius r = M/2.
 // There the expansion must vanish. This additionally exercises A2, B1 and B3 (the
-// partial_k gamma terms) that the flat test leaves at zero. The inputs are the
-// closed forms verified pointwise against the Python prototype.
+// partial_k gamma terms) that the flat test leaves at zero.
 void testExpansionSchwarzschildIsotropicHorizon() {
   const double M = 1.0;
   const double r = 0.5 * M;  // isotropic horizon
