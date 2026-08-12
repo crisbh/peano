@@ -71,6 +71,11 @@ ahf-io-tests
 ahf-interpolation-tests
 ahf-assemble-matrix-tests
 ahf-iteration-tests
+ahf-harmonics-tests
+ahf-spectral-solver-tests
+ahf-spacetimes-tests
+ahf-analytic-horizon-tests
+ahf-brill-lindquist-tests
 ```
 
 They can also be run directly:
