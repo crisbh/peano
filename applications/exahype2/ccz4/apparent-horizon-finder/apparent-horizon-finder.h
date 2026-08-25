@@ -11,6 +11,7 @@
 #include "surface-geometry.h"
 #include "tensor-algebra.h"
 #include "harmonics.h"
+#include "initial-guess.h"
 #include "expansion.h"
 #include "assemble-matrix.h"
 #include "dense-linear-algebra.h"

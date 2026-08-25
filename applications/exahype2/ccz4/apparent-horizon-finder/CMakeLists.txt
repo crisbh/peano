@@ -14,6 +14,7 @@ set(AHF_CORE_SOURCES
   interpolation.cpp
   surface-geometry.cpp
   harmonics.cpp
+  initial-guess.cpp
   expansion.cpp
   assemble-matrix.cpp
   spectral-solver.cpp
@@ -33,6 +34,7 @@ set(AHF_CORE_HEADERS
   surface-geometry.h
   tensor-algebra.h
   harmonics.h
+  initial-guess.h
   expansion.h
   assemble-matrix.h
   dense-linear-algebra.h
@@ -128,6 +130,10 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-harmonics-tests test/harmonics/HarmonicsTests.cpp)
   target_link_libraries(ahf-harmonics-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-harmonics-tests COMMAND ahf-harmonics-tests)
+
+  add_executable(ahf-initial-guess-tests test/initial-guess/InitialGuessTests.cpp)
+  target_link_libraries(ahf-initial-guess-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-initial-guess-tests COMMAND ahf-initial-guess-tests)
 
   add_executable(ahf-spectral-solver-tests test/spectral-solver/SpectralSolverTests.cpp)
   target_link_libraries(ahf-spectral-solver-tests PRIVATE ApparentHorizonFinderCore)
