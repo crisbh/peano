@@ -19,6 +19,7 @@ set(AHF_CORE_SOURCES
   spectral-solver.cpp
   spacetimes.cpp
   surface-residual.cpp
+  interpolated-surface-residual.cpp
   diagnostics.cpp
   iteration.cpp
 )
@@ -38,6 +39,7 @@ set(AHF_CORE_HEADERS
   spectral-solver.h
   spacetimes.h
   surface-residual.h
+  interpolated-surface-residual.h
   analytic-residual.h
   diagnostics.h
   iteration.h
@@ -130,6 +132,12 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-spectral-solver-tests test/spectral-solver/SpectralSolverTests.cpp)
   target_link_libraries(ahf-spectral-solver-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-spectral-solver-tests COMMAND ahf-spectral-solver-tests)
+
+  add_executable(ahf-interpolated-surface-residual-tests
+    test/interpolated-surface-residual/InterpolatedSurfaceResidualTests.cpp)
+  target_link_libraries(ahf-interpolated-surface-residual-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-interpolated-surface-residual-tests
+    COMMAND ahf-interpolated-surface-residual-tests)
 
   add_executable(ahf-spacetimes-tests test/spacetimes/SpacetimeTests.cpp)
   target_link_libraries(ahf-spacetimes-tests PRIVATE ApparentHorizonFinderCore)
