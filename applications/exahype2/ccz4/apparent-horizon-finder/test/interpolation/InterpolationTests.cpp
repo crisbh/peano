@@ -253,6 +253,39 @@ void testFindNearestGridCells() {
             << std::endl;
 }
 
+void testRadiusQueryAndWendlandKernel() {
+  GridData grid;
+  grid.coordinates = {
+    {0.0, 0.0, 0.0}, {0.5, 0.0, 0.0}, {1.0, 0.0, 0.0},
+    {-0.5, 0.0, 0.0}, {0.0, 0.75, 0.0}
+  };
+  const CartesianSpatialIndex index(grid);
+  assert(FindGridCellsWithinRadius(index, {0.0, 0.0, 0.0}, 1.0)
+         == (std::vector<std::size_t>{0, 1, 3, 4}));
+  assert(FindGridCellsWithinRadius(index, {0.51, 0.0, 0.0}, 0.5)
+         == (std::vector<std::size_t>{1, 2}));
+  bool invalidRadiusRejected = false;
+  try {
+    (void)FindGridCellsWithinRadius(index, {0.0, 0.0, 0.0}, 0.0);
+  } catch (const std::invalid_argument&) {
+    invalidRadiusRejected = true;
+  }
+  assert(invalidRadiusRejected);
+
+  assert(WendlandC2Weight(0.0) == 1.0);
+  assert(WendlandC2Weight(1.0) == 0.0);
+  assert(WendlandC2Weight(2.0) == 0.0);
+  double previous = 1.0;
+  for (int sample = 1; sample < 100; ++sample) {
+    const double weight = WendlandC2Weight(sample / 100.0);
+    assert(std::isfinite(weight));
+    assert(weight >= 0.0);
+    assert(weight <= previous);
+    previous = weight;
+  }
+  assert(WendlandC2Weight(1.0 - 1.0e-6) < 1.0e-20);
+}
+
 void testAcceleratedNeighbourSearchMatchesBruteForce() {
   std::mt19937_64 generator(4815162342ULL);
   std::uniform_real_distribution<double> coordinate(-5.0, 5.0);
@@ -1302,6 +1335,140 @@ GridData makeValidationGrid() {
   return gridData;
 }
 
+void testRadiusWeightedPolynomialProductionPath() {
+  GridData grid;
+  for (int x = -2; x <= 2; ++x) {
+    for (int y = -2; y <= 2; ++y) {
+      for (int z = -2; z <= 2; ++z) {
+        grid.coordinates.push_back({
+          static_cast<double>(x), static_cast<double>(y), static_cast<double>(z)
+        });
+        for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+          grid.values.push_back(
+            2.0 + 0.1 * field + 0.3 * x - 0.2 * y + 0.05 * z
+          );
+        }
+      }
+    }
+  }
+  const CartesianSpatialIndex index(grid);
+  const LinearReconstructionOptions reconstruction{
+    .method = LinearReconstructionMethod::RadiusWeightedWendlandC2,
+    .numberOfNeighbours = 0,
+    .polynomialDegree = 1,
+    .supportRadius = 2.1,
+    .rankToleranceMultiplier = 64.0
+  };
+  for (const GridCoordinate target : std::array<GridCoordinate, 3>{
+         GridCoordinate{0.1, 0.2, -0.1},
+         GridCoordinate{-0.35, 0.15, 0.25},
+         GridCoordinate{0.4, -0.3, 0.2}}) {
+    const auto support = FindGridCellsWithinRadius(index, target, 2.1);
+    const CompactLinearFit fit = FitCompactLinearPolynomial(
+      grid, support, target, reconstruction
+    );
+    assert(fit.rank == 4);
+    assert(std::isfinite(fit.conditionEstimate));
+    for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+      const double expected = 2.0 + 0.1 * field
+        + 0.3 * target.x - 0.2 * target.y + 0.05 * target.z;
+      assert(std::abs(fit.values[field] - expected) < 1.0e-12);
+      assert(std::abs(fit.gradients[field][0] - 0.3) < 1.0e-12);
+      assert(std::abs(fit.gradients[field][1] + 0.2) < 1.0e-12);
+      assert(std::abs(fit.gradients[field][2] - 0.05) < 1.0e-12);
+    }
+  }
+  GridData constantGrid = grid;
+  std::fill(constantGrid.values.begin(), constantGrid.values.end(), 3.25);
+  const GridCoordinate constantTarget{0.15, -0.1, 0.25};
+  const auto constantSupport = FindGridCellsWithinRadius(
+    index, constantTarget, 2.1
+  );
+  const CompactLinearFit constantFit = FitCompactLinearPolynomial(
+    constantGrid, constantSupport, constantTarget, reconstruction
+  );
+  for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+    assert(std::abs(constantFit.values[field] - 3.25) < 1.0e-12);
+    for (double gradient : constantFit.gradients[field]) {
+      assert(std::abs(gradient) < 1.0e-12);
+    }
+  }
+
+  const CartesianPointInterpolator interpolator(
+    grid,
+    {.method = CartesianToSurfaceMethod::RadiusWeightedPolynomial,
+     .numberOfNeighbours = 0,
+     .polynomialDegree = 1,
+     .supportRadius = 2.1,
+     .allowOrderReduction = false}
+  );
+  std::vector<InterpolatedCartesianPoint> output;
+  const std::array<GridCoordinate, 1> target{{0.5, 0.0, 0.0}};
+  interpolator.interpolatePoints(target, output);
+  assert(output.size() == 1);
+  assert(output[0].diagnostics.requestedMethod
+         == CartesianToSurfaceMethod::RadiusWeightedPolynomial);
+  assert(output[0].diagnostics.neighbourCount
+         == FindGridCellsWithinRadius(index, target[0], 2.1).size());
+  assert(output[0].geometry.spatialMetricDerivativeAvailable);
+
+  GridData boundaryGrid;
+  boundaryGrid.coordinates = {
+    {-0.2, 0.0, 0.0}, {0.0, 0.2, 0.0}, {0.0, 0.0, 0.2},
+    {-0.1, -0.1, -0.1}, {1.0, 0.0, 0.0}
+  };
+  for (std::size_t cell = 0; cell < boundaryGrid.coordinates.size(); ++cell) {
+    for (std::size_t field = 0; field < NumberOfCompactFields; ++field) {
+      const GridCoordinate& coordinate = boundaryGrid.coordinates[cell];
+      const double affine = 1.0 + coordinate.x + 2.0 * coordinate.y
+        - 0.5 * coordinate.z;
+      boundaryGrid.values.push_back(cell == 4 ? affine + 100.0 : affine);
+    }
+  }
+  const CartesianSpatialIndex boundaryIndex(boundaryGrid);
+  const GridCoordinate inside{1.0e-6, 0.0, 0.0};
+  const GridCoordinate outside{-1.0e-6, 0.0, 0.0};
+  const auto insideSupport = FindGridCellsWithinRadius(boundaryIndex, inside, 1.0);
+  const auto outsideSupport = FindGridCellsWithinRadius(boundaryIndex, outside, 1.0);
+  assert(std::find(insideSupport.begin(), insideSupport.end(), 4)
+         != insideSupport.end());
+  assert(std::find(outsideSupport.begin(), outsideSupport.end(), 4)
+         == outsideSupport.end());
+  const LinearReconstructionOptions boundaryOptions{
+    .method = LinearReconstructionMethod::RadiusWeightedWendlandC2,
+    .polynomialDegree = 1,
+    .supportRadius = 1.0
+  };
+  const CompactLinearFit insideFit = FitCompactLinearPolynomial(
+    boundaryGrid, insideSupport, inside, boundaryOptions
+  );
+  const CompactLinearFit outsideFit = FitCompactLinearPolynomial(
+    boundaryGrid, outsideSupport, outside, boundaryOptions
+  );
+  assert(std::abs(insideFit.values[0] - outsideFit.values[0]) < 3.0e-6);
+  for (std::size_t direction = 0; direction < 3; ++direction) {
+    assert(std::abs(insideFit.gradients[0][direction]
+                    - outsideFit.gradients[0][direction]) < 1.0e-8);
+  }
+
+  bool insufficientRejected = false;
+  try {
+    CartesianPointInterpolator insufficient(
+      grid,
+      {.method = CartesianToSurfaceMethod::RadiusWeightedPolynomial,
+       .polynomialDegree = 1,
+       .supportRadius = 0.01,
+       .allowOrderReduction = false}
+    );
+    std::vector<InterpolatedCartesianPoint> ignored;
+    insufficient.interpolatePoints(target, ignored);
+  } catch (const std::runtime_error& error) {
+    insufficientRejected = std::string(error.what()).find("insufficient cells")
+      != std::string::npos;
+  }
+  assert(insufficientRejected);
+}
+
 std::string interpolationFailure(
   const GridData& gridData,
   const CartesianToSurfaceOptions& options
@@ -1439,6 +1606,7 @@ int main() {
   testAnalyticCoordinateGeometry();
   testAnalyticCoordinateDerivativesAgainstFiniteDifferences();
   testFindNearestGridCells();
+  testRadiusQueryAndWendlandKernel();
   testAcceleratedNeighbourSearchMatchesBruteForce();
   reportNeighbourSearchPerformance();
   testInvalidNearestGridCellInputs();
@@ -1455,6 +1623,7 @@ int main() {
   testReusableCartesianPointInterpolator();
   testInterpolateCartesianToSurfaceContextualFailures();
   testInterpolationValidationAndDiagnostics();
+  testRadiusWeightedPolynomialProductionPath();
   testInterpolateFromCartesianToShell();
   testInterpolateFromShellToSurface();
 

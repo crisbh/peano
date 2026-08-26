@@ -9,6 +9,17 @@
 
 namespace exahype2::ccz4::ahf {
 
+double WendlandC2Weight(double q) {
+  if (!std::isfinite(q) || q < 0.0) {
+    throw std::invalid_argument(
+      "WendlandC2Weight: normalized distance must be finite and non-negative"
+    );
+  }
+  if (q >= 1.0) return 0.0;
+  const double oneMinus = 1.0 - q;
+  return oneMinus * oneMinus * oneMinus * oneMinus * (4.0 * q + 1.0);
+}
+
 double LinearReconstructionWeight(
   double distance,
   double lengthScale,
@@ -21,6 +32,14 @@ double LinearReconstructionWeight(
   }
   if (options.method == LinearReconstructionMethod::Unweighted) {
     return 1.0;
+  }
+  if (options.method == LinearReconstructionMethod::RadiusWeightedWendlandC2) {
+    if (!std::isfinite(options.supportRadius) || options.supportRadius <= 0.0) {
+      throw std::invalid_argument(
+        "LinearReconstructionWeight: support radius must be finite and strictly positive"
+      );
+    }
+    return WendlandC2Weight(distance / options.supportRadius);
   }
   if (!std::isfinite(options.weightSupport) || options.weightSupport <= 0.0) {
     throw std::invalid_argument(
@@ -323,6 +342,29 @@ struct CartesianSpatialIndex::Implementation {
     }
   }
 
+  void queryRadius(
+    std::size_t nodeIndex,
+    const GridCoordinate& target,
+    double squaredRadius,
+    std::vector<Candidate>& candidates
+  ) const {
+    if (nodeIndex == NoNode) return;
+    const Node& node = nodes[nodeIndex];
+    const double candidateDistance = squaredDistance(node.cellIndex, target);
+    if (candidateDistance < squaredRadius) {
+      candidates.emplace_back(candidateDistance, node.cellIndex);
+    }
+    const double targetComponent = node.axis == 0 ? target.x
+      : node.axis == 1 ? target.y : target.z;
+    const double difference = targetComponent - component(node.cellIndex, node.axis);
+    const std::size_t nearChild = difference <= 0.0 ? node.left : node.right;
+    const std::size_t farChild = difference <= 0.0 ? node.right : node.left;
+    queryRadius(nearChild, target, squaredRadius, candidates);
+    if (difference * difference < squaredRadius) {
+      queryRadius(farChild, target, squaredRadius, candidates);
+    }
+  }
+
   // Immutable storage shared by all read-only queries.
   std::vector<GridCoordinate> coordinates;
   std::vector<Node> nodes;
@@ -370,12 +412,44 @@ std::vector<std::size_t> CartesianSpatialIndex::findNearest(
   return indices;
 }
 
+std::vector<std::size_t> CartesianSpatialIndex::findWithinRadius(
+  const GridCoordinate& target,
+  double radius
+) const {
+  if (!std::isfinite(target.x) || !std::isfinite(target.y)
+      || !std::isfinite(target.z)) {
+    throw std::invalid_argument("CartesianSpatialIndex: target must be finite");
+  }
+  if (!std::isfinite(radius) || radius <= 0.0) {
+    throw std::invalid_argument(
+      "CartesianSpatialIndex: radius must be finite and strictly positive"
+    );
+  }
+  std::vector<Implementation::Candidate> ordered;
+  _implementation->queryRadius(
+    _implementation->root, target, radius * radius, ordered
+  );
+  std::sort(ordered.begin(), ordered.end());
+  std::vector<std::size_t> indices;
+  indices.reserve(ordered.size());
+  for (const auto& candidate : ordered) indices.push_back(candidate.second);
+  return indices;
+}
+
 std::vector<std::size_t> FindNearestGridCells(
   const CartesianSpatialIndex& spatialIndex,
   const GridCoordinate& target,
   std::size_t neighbourCount
 ) {
   return spatialIndex.findNearest(target, neighbourCount);
+}
+
+std::vector<std::size_t> FindGridCellsWithinRadius(
+  const CartesianSpatialIndex& spatialIndex,
+  const GridCoordinate& target,
+  double radius
+) {
+  return spatialIndex.findWithinRadius(target, radius);
 }
 
 std::vector<std::size_t> FindNearestGridCells(
@@ -463,6 +537,14 @@ public:
       _lengthScale = std::max(
         _lengthScale,
         std::hypot(sample.x - target.x, sample.y - target.y, sample.z - target.z));
+    }
+    if (options.method == LinearReconstructionMethod::RadiusWeightedWendlandC2) {
+      if (!std::isfinite(options.supportRadius) || options.supportRadius <= 0.0) {
+        throw std::invalid_argument(
+          std::string(caller) + ": support radius must be finite and strictly positive"
+        );
+      }
+      _lengthScale = options.supportRadius;
     }
     if (!std::isfinite(_lengthScale)
         || (_lengthScale <= 0.0 && options.polynomialDegree > 0)) {
@@ -716,7 +798,8 @@ CartesianPointInterpolator::CartesianPointInterpolator(
     throw std::invalid_argument(
       "CartesianPointInterpolator: GridData value count must equal cell count times fourteen");
   }
-  if (options.numberOfNeighbours == 0) {
+  if (options.method != CartesianToSurfaceMethod::RadiusWeightedPolynomial
+      && options.numberOfNeighbours == 0) {
     throw std::invalid_argument(
       "CartesianPointInterpolator: neighbour count must be greater than zero");
   }
@@ -724,6 +807,13 @@ CartesianPointInterpolator::CartesianPointInterpolator(
       && options.polynomialDegree > 3) {
     throw std::invalid_argument(
       "CartesianPointInterpolator: supported polynomial degree is 0 through 3");
+  }
+  if (options.method == CartesianToSurfaceMethod::RadiusWeightedPolynomial
+      && (!std::isfinite(options.supportRadius)
+          || options.supportRadius <= 0.0)) {
+    throw std::invalid_argument(
+      "CartesianPointInterpolator: support radius must be finite and strictly positive"
+    );
   }
   if (!std::isfinite(options.domainRelativeTolerance)
       || options.domainRelativeTolerance < 0.0) {
@@ -778,7 +868,8 @@ void CartesianPointInterpolator::interpolatePoints(
         .degreeUsed = _options.method == CartesianToSurfaceMethod::NearestNeighbour
           ? 0u : _options.polynomialDegree,
         .neighbourCount = _options.method == CartesianToSurfaceMethod::NearestNeighbour
-          ? 1u : _options.numberOfNeighbours,
+          ? 1u : (_options.method == CartesianToSurfaceMethod::RadiusWeightedPolynomial
+                    ? 0u : _options.numberOfNeighbours),
         .target = target,
         .rank = _options.method == CartesianToSurfaceMethod::NearestNeighbour ? 1u : 0u,
         .conditionEstimate = 1.0,
@@ -788,6 +879,7 @@ void CartesianPointInterpolator::interpolatePoints(
       bool useNearestNeighbour =
         _options.method == CartesianToSurfaceMethod::NearestNeighbour;
       if (!useNearestNeighbour
+          && _options.method != CartesianToSurfaceMethod::RadiusWeightedPolynomial
           && (_options.numberOfNeighbours < PolynomialBasisSize(_options.polynomialDegree)
               || _options.numberOfNeighbours > _gridData->coordinates.size())) {
         if (!_options.allowOrderReduction) {
@@ -801,8 +893,28 @@ void CartesianPointInterpolator::interpolatePoints(
         diagnostics.orderReduced = true;
       }
 
-      std::vector<std::size_t> neighbours = FindNearestGridCells(
-        _spatialIndex, target, useNearestNeighbour ? 1 : _options.numberOfNeighbours);
+      std::vector<std::size_t> neighbours =
+        _options.method == CartesianToSurfaceMethod::RadiusWeightedPolynomial
+          ? FindGridCellsWithinRadius(_spatialIndex, target, _options.supportRadius)
+          : FindNearestGridCells(
+              _spatialIndex, target,
+              useNearestNeighbour ? 1 : _options.numberOfNeighbours
+            );
+      if (!useNearestNeighbour
+          && neighbours.size() < PolynomialBasisSize(_options.polynomialDegree)) {
+        if (!_options.allowOrderReduction) {
+          throw std::invalid_argument(
+            "polynomial reconstruction has insufficient cells inside support radius and order reduction is disabled"
+          );
+        }
+        useNearestNeighbour = true;
+        neighbours = FindNearestGridCells(_spatialIndex, target, 1);
+        diagnostics.degreeUsed = 0;
+        diagnostics.neighbourCount = 1;
+        diagnostics.rank = 1;
+        diagnostics.orderReduced = true;
+      }
+      diagnostics.neighbourCount = neighbours.size();
       const auto validateStencil = [this](std::span<const std::size_t> stencil) {
         for (std::size_t cellIndex : stencil) {
           for (double value : _gridData->cell(cellIndex).row()) {
@@ -825,10 +937,13 @@ void CartesianPointInterpolator::interpolatePoints(
         const LinearReconstructionOptions reconstructionOptions{
           .method = _options.method == CartesianToSurfaceMethod::WeightedPolynomial
             ? LinearReconstructionMethod::WeightedMovingLeastSquares
-            : LinearReconstructionMethod::Unweighted,
+            : (_options.method == CartesianToSurfaceMethod::RadiusWeightedPolynomial
+                ? LinearReconstructionMethod::RadiusWeightedWendlandC2
+                : LinearReconstructionMethod::Unweighted),
           .numberOfNeighbours = neighbours.size(),
           .polynomialDegree = _options.polynomialDegree,
           .weightSupport = _options.weightSupport,
+          .supportRadius = _options.supportRadius,
           .rankToleranceMultiplier = _options.rankToleranceMultiplier
         };
         try {
@@ -836,7 +951,9 @@ void CartesianPointInterpolator::interpolatePoints(
             *_gridData, neighbours, target, reconstructionOptions);
           compactValues = fit.values;
           compactGradients = fit.gradients;
-          derivativesAvailable = true;
+          derivativesAvailable =
+            _options.method != CartesianToSurfaceMethod::RadiusWeightedPolynomial
+            || _options.polynomialDegree >= 1;
           diagnostics.rank = fit.rank;
           diagnostics.conditionEstimate = fit.conditionEstimate;
         } catch (const std::invalid_argument& error) {

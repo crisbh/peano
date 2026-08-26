@@ -66,6 +66,11 @@ public:
     const GridCoordinate& target,
     std::size_t neighbourCount
   ) const;
+  /** Return all cells with Euclidean distance strictly less than radius. */
+  std::vector<std::size_t> findWithinRadius(
+    const GridCoordinate& target,
+    double radius
+  ) const;
   std::size_t size() const;
 
 private:
@@ -78,6 +83,13 @@ std::vector<std::size_t> FindNearestGridCells(
   const CartesianSpatialIndex& spatialIndex,
   const GridCoordinate& target,
   std::size_t neighbourCount
+);
+
+/** Query every indexed cell strictly inside @p radius, sorted by distance/index. */
+std::vector<std::size_t> FindGridCellsWithinRadius(
+  const CartesianSpatialIndex& spatialIndex,
+  const GridCoordinate& target,
+  double radius
 );
 
 /**
@@ -118,7 +130,8 @@ PolynomialBasis GeneratePolynomialBasis(std::size_t degree);
 
 enum class LinearReconstructionMethod {
   Unweighted,
-  WeightedMovingLeastSquares
+  WeightedMovingLeastSquares,
+  RadiusWeightedWendlandC2
 };
 
 struct LinearReconstructionOptions {
@@ -129,6 +142,8 @@ struct LinearReconstructionOptions {
   std::size_t polynomialDegree = 1;
   /** Gaussian support alpha in exp(-(distance/(alpha*ell))^2). */
   double weightSupport = 1.0;
+  /** Physical compact-support radius for RadiusWeightedWendlandC2. */
+  double supportRadius = 0.0;
   /**
    * Multiplier applied to epsilon*n*largest-column-norm for rank detection.
    * Controls how strictly the QR solver decides that the neighbour geometry
@@ -137,18 +152,23 @@ struct LinearReconstructionOptions {
   double rankToleranceMultiplier = 64.0;
 };
 
-/** Evaluate the isolated unweighted/Gaussian row weight. */
+/** Evaluate the configured unweighted, Gaussian, or compact-support row weight. */
 double LinearReconstructionWeight(
   double distance,
   double lengthScale,
   const LinearReconstructionOptions& options
 );
 
+/** Wendland C2 compact kernel: (1-q)^4(4q+1) for 0<=q<1, else zero. */
+double WendlandC2Weight(double q);
+
 /**
  * Scalar total-degree polynomial least-squares reconstruction using a
- * column-pivoted QR solve. The length scale ell is the maximum
- * Euclidean distance of any sample from the target, which bounds every scaled
- * sample radius by one and is insensitive to sample ordering.
+ * column-pivoted QR solve. The length scale ell is the maximum Euclidean
+ * distance of any sample from the target, except for
+ * RadiusWeightedWendlandC2 where ell is the configured support radius. This
+ * bounds every scaled sample radius by one and is insensitive to sample
+ * ordering.
  *
  * The configured degree p requires at least (p+1)(p+2)(p+3)/6 samples; using
  * more gives the intended overdetermined fit. Degrees 0 through 3 are
@@ -192,6 +212,8 @@ struct CartesianToSurfaceOptions {
   std::size_t numberOfNeighbours = 8;
   std::size_t polynomialDegree = 1;
   double weightSupport = 1.0;
+  /** Used only by RadiusWeightedPolynomial; must be finite and positive. */
+  double supportRadius = 0.0;
   double rankToleranceMultiplier = 64.0;
   bool allowOrderReduction = false;
   /** Allowed distance outside the grid AABB as a fraction of its diagonal. */

@@ -13,6 +13,25 @@ The source split is:
 - `interpolation.*`, `assemble-matrix.*`, `iteration.*`: shared AHF numerical pipeline pieces
 - `ahf-postprocess.cpp`: local offline command-line frontend
 
+## Cartesian interpolation modes
+
+`CartesianToSurfaceOptions::method` keeps the existing interpolation choices
+and also provides an opt-in smooth-support choice:
+
+- `WeightedPolynomial` selects exactly `numberOfNeighbours` nearest cell
+  centres and applies the existing Gaussian moving-least-squares weights.
+- `RadiusWeightedPolynomial` selects every cell centre at distance strictly
+  less than `supportRadius` and applies the compact Wendland C2 weight
+  `(1-q)^4(4q+1)` for `q=distance/supportRadius < 1`. The weight is zero at and
+  outside the support boundary.
+
+The radius-supported mode is useful when the interpolated target moves during
+a Newton iteration: support membership can change while a cell's contribution
+vanishes smoothly at the boundary. It requires a finite positive
+`supportRadius` and enough geometrically independent cells inside that radius
+for the requested `polynomialDegree`. The fixed-count method remains unchanged
+and is still the default weighted-polynomial behaviour.
+
 ## Local Postprocessing Build
 
 Build from inside this folder:

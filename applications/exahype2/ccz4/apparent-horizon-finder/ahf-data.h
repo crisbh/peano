@@ -61,6 +61,8 @@ enum class CartesianToSurfaceMethod {
   NearestNeighbour,
   UnweightedPolynomial,
   WeightedPolynomial,
+  /** All cells inside supportRadius, using compact Wendland-C2 weights. */
+  RadiusWeightedPolynomial,
   /** Backward-compatible names retained for callers of the original degree-1 API. */
   UnweightedDegree1 = UnweightedPolynomial,
   WeightedDegree1 = WeightedPolynomial
