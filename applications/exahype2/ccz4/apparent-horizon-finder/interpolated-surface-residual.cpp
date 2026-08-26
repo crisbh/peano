@@ -4,11 +4,32 @@
 #include "surface-geometry.h"
 
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
 namespace exahype2::ccz4::ahf {
 namespace {
+
+class StructuralContractError final: public std::logic_error {
+public:
+  using std::logic_error::logic_error;
+};
+
+std::vector<double> InvalidTrialResidual(const SpectralBasis& basis) {
+  return std::vector<double>(
+    basis.nModes, std::numeric_limits<double>::quiet_NaN()
+  );
+}
+
+void ValidateBasisPointStorage(const SpectralBasis& basis) {
+  if (basis.rho.size() != basis.nPoints
+      || basis.sigma.size() != basis.nPoints) {
+    throw StructuralContractError(
+      "MakeInterpolatedSurfaceResidual: basis point storage does not match basis.nPoints"
+    );
+  }
+}
 
 void ValidateSynthesizedField(
   const SpectralBasis& basis,
@@ -19,7 +40,7 @@ void ValidateSynthesizedField(
     const char* name
   ) {
     if (values.size() != basis.nPoints) {
-      throw std::invalid_argument(
+      throw StructuralContractError(
         "BuildInterpolatedSurface: synthesized " + std::string(name)
         + " point count does not match basis.nPoints"
       );
@@ -57,6 +78,8 @@ InterpolatedSurface BuildInterpolatedSurface(
     );
   }
 
+  ValidateBasisPointStorage(basis);
+
   const SynthesizedField field = Synthesize(basis, coefficients);
   ValidateSynthesizedField(basis, field);
 
@@ -75,7 +98,7 @@ InterpolatedSurface BuildInterpolatedSurface(
     interpolator, guess, referencePoint, surface
   );
   if (surface.numberOfPoints() != basis.nPoints) {
-    throw std::runtime_error(
+    throw StructuralContractError(
       "BuildInterpolatedSurface: interpolated surface point count does not match basis.nPoints"
     );
   }
@@ -100,17 +123,37 @@ SpectralResidual MakeInterpolatedSurfaceResidual(
   return [&basis, &interpolator, referencePoint](
     const std::vector<double>& coefficients
   ) -> std::vector<double> {
-    const InterpolatedSurface surface = BuildInterpolatedSurface(
-      basis, coefficients, interpolator, referencePoint
-    );
+    // Contract/programming errors are checked before the trial-state boundary
+    // and deliberately continue to propagate to the caller.
+    if (coefficients.size() != basis.nModes) {
+      throw std::invalid_argument(
+        "MakeInterpolatedSurfaceResidual: coefficient count does not match basis.nModes"
+      );
+    }
+    ValidateBasisPointStorage(basis);
 
-    std::vector<std::vector<double>> unusedMatrixCoefficients;
     std::vector<double> residuals;
-    AssembleGlobalMatrix(
-      surface, basis, unusedMatrixCoefficients, residuals
-    );
+    try {
+      const InterpolatedSurface surface = BuildInterpolatedSurface(
+        basis, coefficients, interpolator, referencePoint
+      );
+
+      std::vector<std::vector<double>> unusedMatrixCoefficients;
+      AssembleGlobalMatrix(
+        surface, basis, unusedMatrixCoefficients, residuals
+      );
+    } catch (const StructuralContractError&) {
+      throw;
+    } catch (const std::exception&) {
+      // Expected failures of a Newton trial (invalid radius, interpolation
+      // domain/stencil/rank failure, unavailable derivatives, or invalid
+      // geometry/expansion) use the same non-finite residual convention as
+      // MakeResidual. This lets SolveSpectralNewton's existing line search
+      // reject and shorten the trial step.
+      return InvalidTrialResidual(basis);
+    }
     if (residuals.size() != basis.nModes) {
-      throw std::runtime_error(
+      throw StructuralContractError(
         "MakeInterpolatedSurfaceResidual: residual count does not match basis.nModes"
       );
     }

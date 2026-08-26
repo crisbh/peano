@@ -54,6 +54,16 @@ bool Different(
   return false;
 }
 
+void AssertInvalidTrialResidual(
+  const std::vector<double>& values,
+  std::size_t expectedSize
+) {
+  assert(values.size() == expectedSize);
+  assert(std::all_of(values.begin(), values.end(), [](double value) {
+    return !std::isfinite(value);
+  }));
+}
+
 void TestStructureOrderingAndShapeGeometry() {
   const GridData grid = MakeFlatGrid();
   const CartesianPointInterpolator interpolator(grid, DerivativeOptions());
@@ -111,25 +121,17 @@ void TestInputValidation() {
   assert(wrongCountRejected);
 
   std::vector<double> zeroRadius(basis.nModes, 0.0);
-  bool radiusRejected = false;
-  try {
-    (void)derivativeResidual(zeroRadius);
-  } catch (const std::invalid_argument& error) {
-    radiusRejected = std::string(error.what()).find("point 0") != std::string::npos
-      && std::string(error.what()).find("strictly positive") != std::string::npos;
-  }
-  assert(radiusRejected);
+  AssertInvalidTrialResidual(derivativeResidual(zeroRadius), basis.nModes);
 
   std::vector<double> nonFinite = SphereCoefficients(basis, 0.8);
   nonFinite[0] = std::numeric_limits<double>::quiet_NaN();
-  bool nonFiniteRejected = false;
-  try {
-    (void)derivativeResidual(nonFinite);
-  } catch (const std::invalid_argument& error) {
-    nonFiniteRejected =
-      std::string(error.what()).find("must be finite") != std::string::npos;
-  }
-  assert(nonFiniteRejected);
+  AssertInvalidTrialResidual(derivativeResidual(nonFinite), basis.nModes);
+
+  // A valid synthesized sphere outside the sampled domain is an invalid
+  // Newton trial, not a callback contract failure.
+  AssertInvalidTrialResidual(
+    derivativeResidual(SphereCoefficients(basis, 10.0)), basis.nModes
+  );
 
   const CartesianPointInterpolator nearestInterpolator(
     grid,
@@ -139,15 +141,23 @@ void TestInputValidation() {
   const SpectralResidual nearestResidual = MakeInterpolatedSurfaceResidual(
     basis, nearestInterpolator, {0.0, 0.0, 0.0}
   );
-  bool derivativesRejected = false;
+  AssertInvalidTrialResidual(
+    nearestResidual(SphereCoefficients(basis, 0.8)), basis.nModes
+  );
+
+  SpectralBasis inconsistentBasis = basis;
+  inconsistentBasis.rho.pop_back();
+  const SpectralResidual inconsistentResidual = MakeInterpolatedSurfaceResidual(
+    inconsistentBasis, derivativeInterpolator, {0.0, 0.0, 0.0}
+  );
+  bool structuralErrorPropagated = false;
   try {
-    (void)nearestResidual(SphereCoefficients(basis, 0.8));
-  } catch (const std::runtime_error& error) {
-    derivativesRejected =
-      std::string(error.what()).find("derivatives are unavailable at point 0")
-      != std::string::npos;
+    (void)inconsistentResidual(SphereCoefficients(basis, 0.8));
+  } catch (const std::logic_error& error) {
+    structuralErrorPropagated =
+      std::string(error.what()).find("basis point storage") != std::string::npos;
   }
-  assert(derivativesRejected);
+  assert(structuralErrorPropagated);
 }
 
 void TestRepeatabilityAndPerturbation() {

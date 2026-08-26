@@ -23,7 +23,7 @@ static_assert(std::is_same_v<
   SpectralNewtonResult
 >);
 
-GridData MakeConstantHorizonGrid() {
+GridData MakeConstantHorizonGrid(double curvature = 1.0) {
   GridData grid;
   for (int ix = -2; ix <= 2; ++ix) {
     for (int iy = -2; iy <= 2; ++iy) {
@@ -33,12 +33,12 @@ GridData MakeConstantHorizonGrid() {
           static_cast<double>(iy),
           static_cast<double>(iz)
         });
-        // gamma_ij = delta_ij, K_ij = delta_ij, traceK = 3. Therefore a
-        // coordinate sphere has Theta = 2/r - 2 and a root at r = 1.
+        // gamma_ij = delta_ij and K_ij = curvature delta_ij. Therefore a
+        // coordinate sphere has Theta = 2/r - 2 curvature.
         const std::array<double, NumberOfCompactFields> row{
           1.0, 0.0, 0.0, 1.0, 0.0, 1.0,
-          0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-          3.0, 1.0
+          curvature, 0.0, 0.0, curvature, 0.0, curvature,
+          3.0 * curvature, 1.0
         };
         grid.values.insert(grid.values.end(), row.begin(), row.end());
       }
@@ -122,6 +122,30 @@ void TestFailureResultPropagation() {
   assert(actual.message == "max_iter reached");
 }
 
+void TestInvalidLineSearchTrialDoesNotEscape() {
+  // The analytic root is r=10, beyond this grid. Starting at r=1 causes a
+  // later full Newton trial to leave the interpolation domain. The residual
+  // adapter must translate that trial to NaNs so the existing line search can
+  // shorten it or return its controlled failure result.
+  const GridData grid = MakeConstantHorizonGrid(0.1);
+  const CartesianPointInterpolator interpolator(grid, InterpolationOptions());
+  const SpectralBasis basis = BuildSpectralBasis(0);
+
+  SpectralNewtonResult result;
+  bool exceptionEscaped = false;
+  try {
+    result = SolveInterpolatedApparentHorizon(
+      basis, interpolator, {0.0, 0.0, 0.0}, 1.0
+    );
+  } catch (const std::exception&) {
+    exceptionEscaped = true;
+  }
+
+  assert(!exceptionEscaped);
+  assert(result.coefficients.size() == basis.nModes);
+  assert(!result.message.empty());
+}
+
 }  // namespace
 }  // namespace exahype2::ccz4::ahf::tests::interpolated_horizon_solver
 
@@ -129,5 +153,6 @@ int main() {
   using namespace exahype2::ccz4::ahf::tests::interpolated_horizon_solver;
   TestSuccessfulOrchestrationAndResultPropagation();
   TestFailureResultPropagation();
+  TestInvalidLineSearchTrialDoesNotEscape();
   std::cout << "All interpolated-horizon solver tests completed.\n";
 }
