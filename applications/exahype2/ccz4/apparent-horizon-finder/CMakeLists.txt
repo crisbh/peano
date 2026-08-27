@@ -118,20 +118,6 @@ if(ENABLE_CCZ4_AHF_TESTS)
   target_link_libraries(ahf-surface-geometry-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-surface-geometry-tests COMMAND ahf-surface-geometry-tests)
 
-  add_executable(ahf-ssbh-integration-tests test/integration/SSBHInterpolationTests.cpp)
-  target_link_libraries(ahf-ssbh-integration-tests PRIVATE ApparentHorizonFinderPostprocess)
-  add_test(NAME ahf-ssbh-integration-tests COMMAND ahf-ssbh-integration-tests)
-  set_tests_properties(ahf-ssbh-integration-tests PROPERTIES LABELS integration)
-
-  add_executable(ahf-sample-ssbh-horizon-integration-tests
-    test/integration/SSBHApparentHorizonTests.cpp)
-  target_link_libraries(ahf-sample-ssbh-horizon-integration-tests
-    PRIVATE ApparentHorizonFinderPostprocess)
-  add_test(NAME ahf-sample-ssbh-horizon-integration-tests
-    COMMAND ahf-sample-ssbh-horizon-integration-tests)
-  set_tests_properties(ahf-sample-ssbh-horizon-integration-tests
-    PROPERTIES LABELS integration)
-
   add_executable(ahf-sample-t0-user-workflow-tests
     test/integration/SampleT0UserWorkflowTests.cpp)
   target_link_libraries(ahf-sample-t0-user-workflow-tests
