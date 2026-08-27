@@ -132,6 +132,15 @@ if(ENABLE_CCZ4_AHF_TESTS)
   set_tests_properties(ahf-sample-ssbh-horizon-integration-tests
     PROPERTIES LABELS integration)
 
+  add_executable(ahf-sample-t0-user-workflow-tests
+    test/integration/SampleT0UserWorkflowTests.cpp)
+  target_link_libraries(ahf-sample-t0-user-workflow-tests
+    PRIVATE ApparentHorizonFinderPostprocess)
+  add_test(NAME ahf-sample-t0-user-workflow-tests
+    COMMAND ahf-sample-t0-user-workflow-tests)
+  set_tests_properties(ahf-sample-t0-user-workflow-tests
+    PROPERTIES LABELS integration)
+
   add_executable(ahf-assemble-matrix-tests test/assemble-matrix/AssembleMatrixTests.cpp)
   target_link_libraries(ahf-assemble-matrix-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-assemble-matrix-tests COMMAND ahf-assemble-matrix-tests)
