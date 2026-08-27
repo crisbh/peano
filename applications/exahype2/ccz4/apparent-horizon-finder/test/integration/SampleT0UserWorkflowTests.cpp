@@ -2,6 +2,7 @@
 #include "../../file-input.h"
 
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <numeric>
@@ -9,6 +10,12 @@
 
 namespace exahype2::ccz4::ahf::tests::integration {
 namespace {
+
+using Clock = std::chrono::steady_clock;
+
+double Seconds(Clock::time_point begin, Clock::time_point end) {
+  return std::chrono::duration<double>(end - begin).count();
+}
 
 std::string DatasetPath() {
   const std::string source = __FILE__;
@@ -26,21 +33,46 @@ SourceVariableMapping SourceMapping() {
 }
 
 void TestSampleT0UserWorkflow() {
+  const auto totalStart = Clock::now();
+
+  std::cout << "[AHF] Building the spectral basis and initial guess..."
+            << std::endl;
+  const auto setupStart = Clock::now();
+  const SpectralBasis basis = BuildSpectralBasis(2);
+  const ReferencePoint referencePoint{0.0, 0.0, 0.0};
+  constexpr double initialAHRadiusGuess = 0.9;
+  const auto setupFinish = Clock::now();
+  std::cout << "[AHF] Basis and initial-guess setup took "
+            << Seconds(setupStart, setupFinish) << " s." << std::endl;
+
+  std::cout << "[AHF] Loading Cartesian data from sample_t=0.vtu..."
+            << std::endl;
+  const auto loadStart = Clock::now();
   GridData grid;
   ReadGridFromFile(DatasetPath(), grid, SourceMapping());
+  const auto loadFinish = Clock::now();
+  std::cout << "[AHF] Loaded " << grid.numberOfPoints()
+            << " Cartesian cells in " << Seconds(loadStart, loadFinish)
+            << " s." << std::endl;
 
+  std::cout << "[AHF] Constructing the persistent Cartesian interpolator..."
+            << std::endl;
+  const auto interpolatorStart = Clock::now();
   const CartesianPointInterpolator interpolator(
     grid,
     {
       .method = CartesianToSurfaceMethod::RadiusWeightedPolynomial,
-      .polynomialDegree = 1,
+      .polynomialDegree = 3,
       .supportRadius = 0.1,
       .rankToleranceMultiplier = 64.0,
       .allowOrderReduction = false
     }
   );
-  const SpectralBasis basis = BuildSpectralBasis(2);
-  const ReferencePoint referencePoint{0.0, 0.0, 0.0};
+  const auto interpolatorFinish = Clock::now();
+  std::cout << "[AHF] Interpolator construction took "
+            << Seconds(interpolatorStart, interpolatorFinish) << " s."
+            << std::endl;
+
   const SpectralNewtonOptions options{
     .tolerance = 1.0e-8,
     .massScale = 1.0,
@@ -50,11 +82,21 @@ void TestSampleT0UserWorkflow() {
     .maxRadiusFactor = 6.0
   };
 
+  std::cout << "[AHF] Iterating the apparent-horizon equation..."
+            << std::endl;
+  const auto solveStart = Clock::now();
   const SpectralNewtonResult result = SolvePDEforAH(
-    basis, interpolator, referencePoint, 0.8, options
+    basis, interpolator, referencePoint, initialAHRadiusGuess, options
   );
+  const auto solveFinish = Clock::now();
   assert(result.converged);
+  std::cout << "[AHF] Iteration converged after " << result.iterations
+            << " Newton iterations in " << Seconds(solveStart, solveFinish)
+            << " s." << std::endl;
 
+  std::cout << "[AHF] Reconstructing and validating the final horizon..."
+            << std::endl;
+  const auto reconstructionStart = Clock::now();
   const SynthesizedField horizon = Synthesize(basis, result.coefficients);
   const double meanRadius = std::accumulate(
     horizon.h.begin(), horizon.h.end(), 0.0
@@ -62,12 +104,21 @@ void TestSampleT0UserWorkflow() {
 
   constexpr double expectedRadius = 0.5;
   constexpr double radiusTolerance = 1.0e-2;
+
+  std::cout << "[AHF] Finished: mean AH radius = " << meanRadius
+            << ", expected = " << expectedRadius << std::endl;
+
+  const auto reconstructionFinish = Clock::now();
+  std::cout << "[AHF] Final reconstruction and validation took "
+            << Seconds(reconstructionStart, reconstructionFinish) << " s."
+            << std::endl
+            << "[AHF] Total wall-clock time: "
+            << Seconds(totalStart, reconstructionFinish) << " s."
+            << std::endl;
+
   assert(std::isfinite(meanRadius));
   assert(std::abs(meanRadius - expectedRadius) < radiusTolerance);
 
-  std::cout << "sample_t=0.vtu user workflow: converged in "
-            << result.iterations << " iterations; mean AH radius = "
-            << meanRadius << ", expected = " << expectedRadius << '\n';
 }
 
 }  // namespace
