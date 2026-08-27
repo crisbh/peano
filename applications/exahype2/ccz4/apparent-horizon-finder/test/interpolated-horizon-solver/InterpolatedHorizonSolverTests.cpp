@@ -1,6 +1,6 @@
 #include "../../initial-guess.h"
-#include "../../interpolated-horizon-solver.h"
 #include "../../interpolated-surface-residual.h"
+#include "../../iteration.h"
 
 #include <array>
 #include <cassert>
@@ -9,11 +9,11 @@
 #include <utility>
 #include <vector>
 
-namespace exahype2::ccz4::ahf::tests::interpolated_horizon_solver {
+namespace exahype2::ccz4::ahf::tests::solve_pde_for_ah {
 namespace {
 
 static_assert(std::is_same_v<
-  decltype(SolveInterpolatedApparentHorizon(
+  decltype(SolvePDEforAH(
     std::declval<const SpectralBasis&>(),
     std::declval<const CartesianPointInterpolator&>(),
     std::declval<const ReferencePoint&>(),
@@ -65,7 +65,7 @@ SpectralNewtonResult SolveDirectly(
   const std::vector<double> initial =
     MakeSphericalInitialCoefficients(basis, initialRadius);
   assert(initial.size() == basis.nModes);
-  const SpectralResidual residual = MakeInterpolatedSurfaceResidual(
+  const SpectralResidual residual = detail::MakeInterpolatedSurfaceResidual(
     basis, interpolator, {0.0, 0.0, 0.0}
   );
   return SolveSpectralNewton(basis, residual, initial, options);
@@ -91,7 +91,7 @@ void TestSuccessfulOrchestrationAndResultPropagation() {
   const SpectralNewtonResult expected = SolveDirectly(
     basis, interpolator, initialRadius, {}
   );
-  const SpectralNewtonResult actual = SolveInterpolatedApparentHorizon(
+  const SpectralNewtonResult actual = SolvePDEforAH(
     basis, interpolator, {0.0, 0.0, 0.0}, initialRadius
   );
 
@@ -113,7 +113,7 @@ void TestFailureResultPropagation() {
   const SpectralNewtonResult expected = SolveDirectly(
     basis, interpolator, initialRadius, options
   );
-  const SpectralNewtonResult actual = SolveInterpolatedApparentHorizon(
+  const SpectralNewtonResult actual = SolvePDEforAH(
     basis, interpolator, {0.0, 0.0, 0.0}, initialRadius, options
   );
 
@@ -134,7 +134,7 @@ void TestInvalidLineSearchTrialDoesNotEscape() {
   SpectralNewtonResult result;
   bool exceptionEscaped = false;
   try {
-    result = SolveInterpolatedApparentHorizon(
+    result = SolvePDEforAH(
       basis, interpolator, {0.0, 0.0, 0.0}, 1.0
     );
   } catch (const std::exception&) {
@@ -147,12 +147,12 @@ void TestInvalidLineSearchTrialDoesNotEscape() {
 }
 
 }  // namespace
-}  // namespace exahype2::ccz4::ahf::tests::interpolated_horizon_solver
+}  // namespace exahype2::ccz4::ahf::tests::solve_pde_for_ah
 
 int main() {
-  using namespace exahype2::ccz4::ahf::tests::interpolated_horizon_solver;
+  using namespace exahype2::ccz4::ahf::tests::solve_pde_for_ah;
   TestSuccessfulOrchestrationAndResultPropagation();
   TestFailureResultPropagation();
   TestInvalidLineSearchTrialDoesNotEscape();
-  std::cout << "All interpolated-horizon solver tests completed.\n";
+  std::cout << "All SolvePDEforAH tests completed.\n";
 }

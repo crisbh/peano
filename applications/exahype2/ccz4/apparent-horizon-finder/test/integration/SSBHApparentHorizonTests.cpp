@@ -1,6 +1,7 @@
 #include "../../apparent-horizon-finder.h"
 #include "../../dense-linear-algebra.h"
 #include "../../file-input.h"
+#include "../../interpolated-surface-residual.h"
 
 #include <algorithm>
 #include <array>
@@ -502,7 +503,7 @@ void TestSampleDataSingleBlackHolePipeline() {
   std::vector<double> initialDeterminants;
   std::vector<double> initialExpansion;
   ValidateSurfaceGeometry(initialSurface, initialDeterminants, initialExpansion);
-  const SpectralResidual residual = MakeInterpolatedSurfaceResidual(
+  const SpectralResidual residual = detail::MakeInterpolatedSurfaceResidual(
     basis, interpolator, referencePoint
   );
   const std::vector<double> initialResidual = residual(initialCoefficients);
@@ -1383,7 +1384,7 @@ void TestSampleDataSingleBlackHolePipeline() {
   std::optional<SpectralNewtonResult> result;
   std::string solveException;
   try {
-    result = SolveInterpolatedApparentHorizon(
+    result = SolvePDEforAH(
       basis,
       interpolator,
       referencePoint,
@@ -1395,7 +1396,7 @@ void TestSampleDataSingleBlackHolePipeline() {
   }
   const auto solveFinish = Clock::now();
   const auto radiusSolveStart = Clock::now();
-  const SpectralNewtonResult radiusResult = SolveInterpolatedApparentHorizon(
+  const SpectralNewtonResult radiusResult = SolvePDEforAH(
     basis,
     radiusInterpolator,
     referencePoint,
@@ -1837,7 +1838,7 @@ void TestSampleDataSingleBlackHolePipeline() {
               << " | " << iteration.rank << " | " << iteration.condition
               << '\n';
   }
-  std::cout << "production radius-supported SolveInterpolatedApparentHorizon result:\n"
+  std::cout << "production radius-supported SolvePDEforAH result:\n"
             << "converged/iterations/message = " << radiusResult.converged
             << " / " << radiusResult.iterations << " / " << radiusResult.message
             << '\n' << "residualHistory = [";

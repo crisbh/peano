@@ -115,7 +115,7 @@ InterpolatedSurface BuildInterpolatedSurface(
   return surface;
 }
 
-SpectralResidual MakeInterpolatedSurfaceResidual(
+SpectralResidual detail::MakeInterpolatedSurfaceResidual(
   const SpectralBasis& basis,
   const CartesianPointInterpolator& interpolator,
   const ReferencePoint& referencePoint

@@ -24,8 +24,11 @@ InterpolatedSurface BuildInterpolatedSurface(
   const ReferencePoint& referencePoint
 );
 
+namespace detail {
+
 /**
- * Return residual R(a) = project(Theta(a)) using batch Cartesian interpolation.
+ * Internal Newton adapter returning R(a) = project(Theta(a)) using batch
+ * Cartesian interpolation.
  *
  * The basis and interpolator are captured by reference and must outlive the
  * returned callback. The interpolator retains and reuses its spatial index;
@@ -36,6 +39,8 @@ SpectralResidual MakeInterpolatedSurfaceResidual(
   const CartesianPointInterpolator& interpolator,
   const ReferencePoint& referencePoint
 );
+
+}  // namespace detail
 
 }  // namespace exahype2::ccz4::ahf
 

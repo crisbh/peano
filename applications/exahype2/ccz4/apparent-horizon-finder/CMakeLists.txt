@@ -21,7 +21,6 @@ set(AHF_CORE_SOURCES
   spacetimes.cpp
   surface-residual.cpp
   interpolated-surface-residual.cpp
-  interpolated-horizon-solver.cpp
   diagnostics.cpp
   iteration.cpp
 )
@@ -43,7 +42,6 @@ set(AHF_CORE_HEADERS
   spacetimes.h
   surface-residual.h
   interpolated-surface-residual.h
-  interpolated-horizon-solver.h
   analytic-residual.h
   diagnostics.h
   iteration.h
@@ -156,11 +154,11 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_test(NAME ahf-interpolated-surface-residual-tests
     COMMAND ahf-interpolated-surface-residual-tests)
 
-  add_executable(ahf-interpolated-horizon-solver-tests
+  add_executable(ahf-solve-pde-for-ah-tests
     test/interpolated-horizon-solver/InterpolatedHorizonSolverTests.cpp)
-  target_link_libraries(ahf-interpolated-horizon-solver-tests PRIVATE ApparentHorizonFinderCore)
-  add_test(NAME ahf-interpolated-horizon-solver-tests
-    COMMAND ahf-interpolated-horizon-solver-tests)
+  target_link_libraries(ahf-solve-pde-for-ah-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-solve-pde-for-ah-tests
+    COMMAND ahf-solve-pde-for-ah-tests)
 
   add_executable(ahf-spacetimes-tests test/spacetimes/SpacetimeTests.cpp)
   target_link_libraries(ahf-spacetimes-tests PRIVATE ApparentHorizonFinderCore)

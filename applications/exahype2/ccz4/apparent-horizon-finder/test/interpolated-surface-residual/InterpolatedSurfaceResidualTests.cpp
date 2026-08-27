@@ -95,7 +95,7 @@ void TestStructureOrderingAndShapeGeometry() {
   }
   assert(hasNonzeroNormalDerivative);
 
-  const SpectralResidual residual = MakeInterpolatedSurfaceResidual(
+  const SpectralResidual residual = detail::MakeInterpolatedSurfaceResidual(
     basis, interpolator, {0.0, 0.0, 0.0}
   );
   assert(residual(coefficients).size() == basis.nModes);
@@ -107,7 +107,7 @@ void TestInputValidation() {
   const CartesianPointInterpolator derivativeInterpolator(
     grid, DerivativeOptions()
   );
-  const SpectralResidual derivativeResidual = MakeInterpolatedSurfaceResidual(
+  const SpectralResidual derivativeResidual = detail::MakeInterpolatedSurfaceResidual(
     basis, derivativeInterpolator, {0.0, 0.0, 0.0}
   );
 
@@ -138,7 +138,7 @@ void TestInputValidation() {
     {.method = CartesianToSurfaceMethod::NearestNeighbour,
      .numberOfNeighbours = 1}
   );
-  const SpectralResidual nearestResidual = MakeInterpolatedSurfaceResidual(
+  const SpectralResidual nearestResidual = detail::MakeInterpolatedSurfaceResidual(
     basis, nearestInterpolator, {0.0, 0.0, 0.0}
   );
   AssertInvalidTrialResidual(
@@ -147,7 +147,7 @@ void TestInputValidation() {
 
   SpectralBasis inconsistentBasis = basis;
   inconsistentBasis.rho.pop_back();
-  const SpectralResidual inconsistentResidual = MakeInterpolatedSurfaceResidual(
+  const SpectralResidual inconsistentResidual = detail::MakeInterpolatedSurfaceResidual(
     inconsistentBasis, derivativeInterpolator, {0.0, 0.0, 0.0}
   );
   bool structuralErrorPropagated = false;
@@ -164,7 +164,7 @@ void TestRepeatabilityAndPerturbation() {
   const GridData grid = MakeFlatGrid();
   const CartesianPointInterpolator interpolator(grid, DerivativeOptions());
   const SpectralBasis basis = BuildSpectralBasis(2);
-  const SpectralResidual residual = MakeInterpolatedSurfaceResidual(
+  const SpectralResidual residual = detail::MakeInterpolatedSurfaceResidual(
     basis, interpolator, {0.0, 0.0, 0.0}
   );
   const std::vector<double> coefficients = SphereCoefficients(basis, 0.8);

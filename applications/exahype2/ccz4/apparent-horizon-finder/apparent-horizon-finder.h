@@ -18,8 +18,6 @@
 #include "spectral-solver.h"
 #include "spacetimes.h"
 #include "surface-residual.h"
-#include "interpolated-surface-residual.h"
-#include "interpolated-horizon-solver.h"
 #include "analytic-residual.h"
 #include "diagnostics.h"
 #include "iteration.h"
