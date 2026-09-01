@@ -192,4 +192,10 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-iteration-tests test/iteration/IterationTests.cpp)
   target_link_libraries(ahf-iteration-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-iteration-tests COMMAND ahf-iteration-tests)
+
+  # Figure-data generator for figures/plot-triangle-horizon.py. Deliberately not
+  # an add_test: it asserts nothing, it writes a JSON history of the Newton
+  # solver.
+  add_executable(ahf-dump-triangle-horizon figures/dump-triangle-horizon.cpp)
+  target_link_libraries(ahf-dump-triangle-horizon PRIVATE ApparentHorizonFinderCore)
 endif()
