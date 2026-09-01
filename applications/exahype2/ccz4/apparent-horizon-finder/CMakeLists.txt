@@ -122,6 +122,10 @@ if(ENABLE_CCZ4_AHF_TESTS)
   target_link_libraries(ahf-result-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-result-tests COMMAND ahf-result-tests)
 
+  add_executable(ahf-output-tests test/output/AHOutputTests.cpp)
+  target_link_libraries(ahf-output-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-output-tests COMMAND ahf-output-tests)
+
   add_executable(ahf-interpolation-tests test/interpolation/InterpolationTests.cpp)
   target_link_libraries(ahf-interpolation-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-interpolation-tests COMMAND ahf-interpolation-tests)

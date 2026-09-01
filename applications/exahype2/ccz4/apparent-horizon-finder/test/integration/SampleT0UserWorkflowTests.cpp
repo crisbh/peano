@@ -5,6 +5,9 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 namespace exahype2::ccz4::ahf::tests::integration {
@@ -128,6 +131,37 @@ void TestSampleT0UserWorkflow() {
   assert(std::isfinite(horizon.spectralResidualInfinityNorm));
   assert(!horizon.solver.coefficients.empty());
   assert(std::abs(horizon.meanRadius - expectedRadius) < radiusTolerance);
+
+  const std::filesystem::path outputDirectory =
+    std::filesystem::current_path();
+  const auto summaryPath = outputDirectory / "sample-t0-ah.txt";
+  const auto surfacePath = outputDirectory / "sample-t0-ah.vtp";
+  std::cout << "[AHF] Writing numerical summary to " << summaryPath
+            << std::endl;
+  WriteAHSummary(horizon, summaryPath.string());
+  std::cout << "[AHF] Writing ParaView surface to " << surfacePath
+            << std::endl;
+  WriteAHSurfaceToVTP(horizon, surfacePath.string(), {32, 17});
+  assert(std::filesystem::is_regular_file(summaryPath));
+  assert(std::filesystem::file_size(summaryPath) > 0);
+  assert(std::filesystem::is_regular_file(surfacePath));
+  assert(std::filesystem::file_size(surfacePath) > 0);
+
+  std::ifstream summaryInput(summaryPath);
+  std::ostringstream summaryText;
+  summaryText << summaryInput.rdbuf();
+  assert(summaryText.str().find("solver.converged = true") != std::string::npos);
+  assert(summaryText.str().find("meanRadius = ") != std::string::npos);
+
+  const AHVisualizationSurface visual =
+    BuildAHVisualizationSurface(horizon, {32, 17});
+  assert(!visual.points.empty());
+  assert(!visual.triangles.empty());
+  for (const auto& point : visual.points) {
+    assert(std::isfinite(point[0]));
+    assert(std::isfinite(point[1]));
+    assert(std::isfinite(point[2]));
+  }
 
 }
 
