@@ -160,6 +160,27 @@ std::pair<std::vector<double>, std::vector<double>> GaussLegendre(int n) {
   return {nodes, weights};
 }
 
+// Y_lm alone. Deliberately not routed through EvalMode: LegendreStack divides
+// by 1 - mu^2 to build the derivatives, which is zero at the poles, so the
+// cheap-looking EvalMode(...).Y would be computed via non-finite intermediates
+// there. Only AssociatedLegendrePair and AzimuthFactor are needed for the
+// value, and neither divides by anything. EvalMode calls back into this for its
+// own Y, so the formula still lives in one place.
+double EvalModeValue(int l, int m, double rho, double sigma) {
+  const double mu = std::sin(sigma);
+
+  double P      = 0.0;
+  double unused = 0.0;
+  AssociatedLegendrePair(std::abs(m), l, mu, P, unused);
+
+  double f   = 0.0;
+  double df  = 0.0;
+  double d2f = 0.0;
+  AzimuthFactor(m, rho, f, df, d2f);
+
+  return Normalization(l, m) * P * f;
+}
+
 ModeValues EvalMode(int l, int m, double rho, double sigma) {
   const double mu = std::sin(sigma);
   const double cs = std::cos(sigma);
@@ -181,7 +202,7 @@ ModeValues EvalMode(int l, int m, double rho, double sigma) {
   const double L_ss = -mu * dPdmu + cs * cs * d2Pdmu2;
 
   ModeValues values;
-  values.Y = N * L * f;
+  values.Y = EvalModeValue(l, m, rho, sigma);
   values.Yrho = N * L * df;
   values.Ysigma = N * L_s * f;
   values.Yrhorho = N * L * d2f;

@@ -60,6 +60,37 @@ struct ModeValues {
 ModeValues EvalMode(int l, int m, double rho, double sigma);
 
 /**
+ * The real Y_lm at (rho, sigma), without any derivatives.
+ * Introduced for plots, but keeping it as might me useful in the future.
+ *
+ * Same normalisation, Condon-Shortley phase and cos/sin(m rho) convention as
+ * EvalMode, so EvalModeValue(l, m, rho, sigma) == EvalMode(l, m, rho, sigma).Y
+ * wherever the latter is finite.
+ *
+ * This is not a second copy of that formula: EvalMode calls this function for
+ * its own Y field, so the value is defined in exactly one place and the two
+ * cannot drift apart. What the separate entry point buys is the ability to ask
+ * for the value *without* paying for the derivatives -- and at the poles that
+ * is not merely an optimisation but the only way to get an answer at all,
+ * because EvalMode's derivative recurrences divide by cos^2(sigma) and return
+ * non-finite Yrho/Ysigma/... at sigma = +/- pi/2. Reading .
+ *
+ * The core never needs it: the Gauss-Legendre collocation nodes are open in
+ * mu = sin(sigma) and so never land on a pole, which is why EvalMode alone
+ * sufficed until something had to evaluate h off that grid. Anything that
+ * closes the surface does need it -- synthesising h on a plotting or output
+ * mesh spanning the full sigma range, for instance.
+ *
+ * @param l    degree, l >= 0.
+ * @param m    order, -l <= m <= l; m > 0 selects cos(|m| rho), m < 0
+ *             sin(|m| rho).
+ * @param rho  azimuth.
+ * @param sigma  elevation in [-pi/2, pi/2] (not colatitude); the poles are
+ *               safe here.
+ */
+double EvalModeValue(int l, int m, double rho, double sigma);
+
+/**
  * Spectral basis plus collocation grid and precomputed design matrices.
  *
  * Each design matrix is stored row-major with shape (nPoints x nModes); use
