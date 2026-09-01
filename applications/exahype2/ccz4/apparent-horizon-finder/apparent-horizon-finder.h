@@ -5,6 +5,7 @@
 #define APPARENT_HORIZON_FINDER_H_
 
 #include "ahf-data.h"
+#include "ah-finder-options.h"
 #include "peano-input.h"
 #include "output.h"
 #include "interpolation.h"

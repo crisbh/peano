@@ -10,6 +10,7 @@ if(NOT TARGET PeanoOptions)
 endif()
 
 set(AHF_CORE_SOURCES
+  ah-finder-options.cpp
   output.cpp
   interpolation.cpp
   surface-geometry.cpp
@@ -26,6 +27,7 @@ set(AHF_CORE_SOURCES
 )
 
 set(AHF_CORE_HEADERS
+  ah-finder-options.h
   ahf-data.h
   apparent-horizon-finder.h
   peano-input.h
@@ -109,6 +111,10 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-data-tests test/data/AhfDataTests.cpp)
   target_link_libraries(ahf-data-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-data-tests COMMAND ahf-data-tests)
+
+  add_executable(ahf-options-tests test/options/AHFinderOptionsTests.cpp)
+  target_link_libraries(ahf-options-tests PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-options-tests COMMAND ahf-options-tests)
 
   add_executable(ahf-interpolation-tests test/interpolation/InterpolationTests.cpp)
   target_link_libraries(ahf-interpolation-tests PRIVATE ApparentHorizonFinderCore)
