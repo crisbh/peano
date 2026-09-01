@@ -5,7 +5,6 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
-#include <numeric>
 #include <string>
 
 namespace exahype2::ccz4::ahf::tests::integration {
@@ -97,15 +96,14 @@ void TestSampleT0UserWorkflow() {
   std::cout << "[AHF] Reconstructing and validating the final horizon..."
             << std::endl;
   const auto reconstructionStart = Clock::now();
-  const SynthesizedField horizon = Synthesize(basis, result.coefficients);
-  const double meanRadius = std::accumulate(
-    horizon.h.begin(), horizon.h.end(), 0.0
-  ) / static_cast<double>(horizon.h.size());
+  const AHFinderResult horizon = BuildAHFinderResult(
+    basis, interpolator, referencePoint, result
+  );
 
   constexpr double expectedRadius = 0.5;
   constexpr double radiusTolerance = 1.0e-2;
 
-  std::cout << "[AHF] Finished: mean AH radius = " << meanRadius
+  std::cout << "[AHF] Finished: mean AH radius = " << horizon.meanRadius
             << ", expected = " << expectedRadius << std::endl;
 
   const auto reconstructionFinish = Clock::now();
@@ -116,8 +114,20 @@ void TestSampleT0UserWorkflow() {
             << Seconds(totalStart, reconstructionFinish) << " s."
             << std::endl;
 
-  assert(std::isfinite(meanRadius));
-  assert(std::abs(meanRadius - expectedRadius) < radiusTolerance);
+  assert(horizon.solver.converged);
+  assert(horizon.surfaceAvailable);
+  assert(horizon.referencePoint.x == referencePoint.x);
+  assert(horizon.referencePoint.y == referencePoint.y);
+  assert(horizon.referencePoint.z == referencePoint.z);
+  assert(std::isfinite(horizon.minRadius));
+  assert(std::isfinite(horizon.meanRadius));
+  assert(std::isfinite(horizon.maxRadius));
+  assert(horizon.minRadius <= horizon.meanRadius);
+  assert(horizon.meanRadius <= horizon.maxRadius);
+  assert(std::isfinite(horizon.maxAbsExpansion));
+  assert(std::isfinite(horizon.spectralResidualInfinityNorm));
+  assert(!horizon.solver.coefficients.empty());
+  assert(std::abs(horizon.meanRadius - expectedRadius) < radiusTolerance);
 
 }
 
