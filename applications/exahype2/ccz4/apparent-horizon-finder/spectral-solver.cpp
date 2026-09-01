@@ -40,6 +40,24 @@ bool AllFinite(const std::vector<double>& v) {
   return true;
 }
 
+// Snapshot one state of the march for SpectralNewtonResult::iterationHistory.
+SpectralNewtonIterate RecordIterate(
+  int                        iteration,
+  const std::vector<double>& a,
+  const std::vector<double>& R,
+  double                     lambda,
+  const std::vector<double>& h
+) {
+  SpectralNewtonIterate record;
+  record.iteration            = iteration;
+  record.residualNormInfinity = NormInfinity(R);
+  record.residualNormTwo      = NormTwo(R);
+  record.damping              = lambda;
+  record.coefficients         = a;
+  record.h                    = h;
+  return record;
+}
+
 // Newton-Raphson update step: a + lambda * delta a
 std::vector<double> Step(const std::vector<double>& a, double lambda,
                          const std::vector<double>& d) {
@@ -74,6 +92,12 @@ SpectralNewtonResult SolveSpectralNewton(const SpectralBasis& basis,
   std::vector<double> R = residual(a);
   double residualNorm = NormInfinity(R);
   result.residualHistory.push_back(residualNorm);
+
+  if (options.recordIterationHistory) {
+    result.iterationHistory.push_back(
+      RecordIterate(0, a, R, 1.0, Synthesize(basis, a).h)
+    );
+  }
 
   for (int iteration = 1; iteration <= options.maxIterations; ++iteration) {
     if (residualNorm < effectiveTolerance) {
@@ -142,6 +166,11 @@ SpectralNewtonResult SolveSpectralNewton(const SpectralBasis& basis,
 
     // Star-shaped / runaway guard on the synthesised radius.
     const SynthesizedField field = Synthesize(basis, a);
+    if (options.recordIterationHistory) {
+      result.iterationHistory.push_back(
+        RecordIterate(iteration, a, R, lambda, field.h)
+      );
+    }
     const double hMin = *std::min_element(field.h.begin(), field.h.end());
     const double hMax = *std::max_element(field.h.begin(), field.h.end());
     if (hMin <= 0.0 || hMax > radiusCap) {

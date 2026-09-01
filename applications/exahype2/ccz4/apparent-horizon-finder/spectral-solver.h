@@ -27,6 +27,26 @@ struct SpectralNewtonOptions {
   double finiteDifferenceStep = 1.0e-6;  ///< relative step for the Jacobian
   int maxLineSearchSteps = 20;
   double maxRadiusFactor = 6.0;         ///< runaway cap on max(h) as a multiple of the initial mean radius
+  bool recordIterationHistory = false;  ///< populate SpectralNewtonResult::iterationHistory
+};
+
+/**
+ * One state of the Newton solver, recorded only when
+ * SpectralNewtonOptions::recordIterationHistory is set.
+ * Introduced for plotting, but stays since it might be useful for other
+ * purposes.
+ *
+ * Entry 0 is the initial guess; entry k is the iterate accepted by the line
+ * search in iteration k. An iterate is recorded before the star-shaped guard
+ * runs, so a run that diverges still carries the offending surface.
+ */
+struct SpectralNewtonIterate {
+  int    iteration            = 0; ///< 0 for the initial guess
+  double residualNormInfinity = 0.0;
+  double residualNormTwo      = 0.0;
+  double damping = 1.0; ///< line-search lambda; 1.0 for the initial guess
+  std::vector<double> coefficients;
+  std::vector<double> h; ///< synthesised radius at the basis collocation points
 };
 
 /**
@@ -38,6 +58,9 @@ struct SpectralNewtonResult {
   int iterations = 0;
   std::vector<double> residualHistory;  ///< ||R||_inf per iteration
   std::string message;
+  /// Per-iteration record; empty unless
+  /// SpectralNewtonOptions::recordIterationHistory.
+  std::vector<SpectralNewtonIterate> iterationHistory;
 };
 
 /**
