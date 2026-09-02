@@ -1,6 +1,7 @@
 #include "../../apparent-horizon-finder.h"
 
 #include <cassert>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -30,6 +31,39 @@ AHFinderResult SphereResult(double radius, int lMax = 2, bool converged = true) 
   result.maxAbsExpansion = 2.0e-12;
   result.surfaceAvailable = true;
   return result;
+}
+
+GridData MakeConstantHorizonGrid() {
+  GridData grid;
+  for (int ix = -2; ix <= 2; ++ix) {
+    for (int iy = -2; iy <= 2; ++iy) {
+      for (int iz = -2; iz <= 2; ++iz) {
+        grid.coordinates.push_back({double(ix), double(iy), double(iz)});
+        const std::array<double, NumberOfCompactFields> row{
+          1.0, 0.0, 0.0, 1.0, 0.0, 1.0,
+          1.0, 0.0, 0.0, 1.0, 0.0, 1.0,
+          3.0, 1.0
+        };
+        grid.values.insert(grid.values.end(), row.begin(), row.end());
+      }
+    }
+  }
+  return grid;
+}
+
+AHFinderOptions FinderOptions(int maxIterations = 40) {
+  AHFinderOptions options;
+  options.referencePoint = {0.0, 0.0, 0.0};
+  options.initialRadius = 1.3;
+  options.lMax = 0;
+  options.interpolation = {
+    .method = CartesianToSurfaceMethod::UnweightedPolynomial,
+    .numberOfNeighbours = 64,
+    .polynomialDegree = 1,
+    .allowOrderReduction = false
+  };
+  options.solver.maxIterations = maxIterations;
+  return options;
 }
 
 std::string ReadText(const std::filesystem::path& path) {
@@ -137,6 +171,93 @@ void TestVTP() {
   std::filesystem::remove(path);
 }
 
+void TestFacade() {
+  const GridData grid = MakeConstantHorizonGrid();
+  const auto directory = std::filesystem::temp_directory_path();
+  const auto summary = directory / "ahf-facade-summary.txt";
+  const auto surface = directory / "ahf-facade-surface.vtp";
+  std::filesystem::remove(summary);
+  std::filesystem::remove(surface);
+
+  const AHOutputOptions output{
+    .summaryFilename = summary.string(),
+    .surfaceFilename = surface.string(),
+    .visualization = {11, 8}
+  };
+  const AHFinderResult result = WriteAHToFile(grid, FinderOptions(), output);
+  assert(result.solver.converged);
+  assert(result.surfaceAvailable);
+  assert(result.solver.coefficients.size() == 1);
+  assert(std::filesystem::is_regular_file(summary));
+  assert(std::filesystem::is_regular_file(surface));
+  const std::string summaryText = ReadText(summary);
+  const std::string surfaceText = ReadText(surface);
+  assert(summaryText.find("solver.converged = true") != std::string::npos);
+  // 2 poles + 6 rings * 11 rho points; 2 * 6 * 11 triangles.
+  assert(surfaceText.find("NumberOfPoints=\"68\"") != std::string::npos);
+  assert(surfaceText.find("NumberOfPolys=\"132\"") != std::string::npos);
+  std::filesystem::remove(summary);
+  std::filesystem::remove(surface);
+}
+
+void TestFacadeNonConvergence() {
+  const GridData grid = MakeConstantHorizonGrid();
+  const auto directory = std::filesystem::temp_directory_path();
+  const auto summary = directory / "ahf-facade-failure.txt";
+  const auto surface = directory / "ahf-facade-failure.vtp";
+  std::filesystem::remove(summary);
+  std::filesystem::remove(surface);
+
+  const AHFinderResult result = WriteAHToFile(
+    grid,
+    FinderOptions(0),
+    {.summaryFilename = summary.string(), .surfaceFilename = surface.string()}
+  );
+  assert(!result.solver.converged);
+  assert(std::filesystem::is_regular_file(summary));
+  assert(ReadText(summary).find("solver.converged = false") != std::string::npos);
+  assert(ReadText(summary).find("max_iter reached") != std::string::npos);
+  assert(!std::filesystem::exists(surface));
+  std::filesystem::remove(summary);
+}
+
+void TestFacadeValidationAndIOFailures() {
+  const GridData grid = MakeConstantHorizonGrid();
+  bool threw = false;
+  AHFinderOptions invalidFinder = FinderOptions();
+  invalidFinder.initialRadius = 0.0;
+  try { (void)WriteAHToFile(grid, invalidFinder); }
+  catch (const std::invalid_argument&) { threw = true; }
+  assert(threw);
+
+  threw = false;
+  try {
+    (void)WriteAHToFile(
+      grid, FinderOptions(),
+      {.summaryFilename = "", .surfaceFilename = "surface.vtp"});
+  } catch (const std::invalid_argument&) { threw = true; }
+  assert(threw);
+
+  threw = false;
+  try {
+    (void)WriteAHToFile(
+      grid, FinderOptions(),
+      {.summaryFilename = "summary.txt",
+       .surfaceFilename = "surface.vtp",
+       .visualization = {2, 8}});
+  } catch (const std::invalid_argument&) { threw = true; }
+  assert(threw);
+
+  threw = false;
+  try {
+    (void)WriteAHToFile(
+      grid, FinderOptions(),
+      {.summaryFilename = "/definitely-missing-ahf-directory/summary.txt",
+       .surfaceFilename = "/definitely-missing-ahf-directory/surface.vtp"});
+  } catch (const std::runtime_error&) { threw = true; }
+  assert(threw);
+}
+
 }  // namespace
 }  // namespace exahype2::ccz4::ahf::tests
 
@@ -144,4 +265,7 @@ int main() {
   exahype2::ccz4::ahf::tests::TestSummary();
   exahype2::ccz4::ahf::tests::TestDenseSphereGeometry();
   exahype2::ccz4::ahf::tests::TestVTP();
+  exahype2::ccz4::ahf::tests::TestFacade();
+  exahype2::ccz4::ahf::tests::TestFacadeNonConvergence();
+  exahype2::ccz4::ahf::tests::TestFacadeValidationAndIOFailures();
 }

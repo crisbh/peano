@@ -1,6 +1,7 @@
 #include "output.h"
 
 #include "harmonics.h"
+#include "iteration.h"
 
 #include <cmath>
 #include <fstream>
@@ -74,6 +75,22 @@ std::ofstream OpenOutput(const std::string& filename) {
 }
 
 }  // namespace
+
+void ValidateAHOutputOptions(const AHOutputOptions& options) {
+  if (options.summaryFilename.empty()) {
+    throw std::invalid_argument(
+      "ValidateAHOutputOptions: summaryFilename must not be empty");
+  }
+  if (options.surfaceFilename.empty()) {
+    throw std::invalid_argument(
+      "ValidateAHOutputOptions: surfaceFilename must not be empty");
+  }
+  if (options.summaryFilename == options.surfaceFilename) {
+    throw std::invalid_argument(
+      "ValidateAHOutputOptions: summary and surface filenames must differ");
+  }
+  ValidateVisualizationOptions(options.visualization);
+}
 
 void WriteAHSummary(const AHFinderResult& result, const std::string& filename) {
   std::ofstream output = OpenOutput(filename);
@@ -218,25 +235,31 @@ void WriteAHSurfaceToVTP(const AHFinderResult& result,
   }
 }
 
-void WriteAHToFile(const std::vector<AHGuess>& initialAHGuesses,
-                   const std::vector<ReferencePoint>& referencePoints,
-                   const std::vector<double>& masses,
-                   const std::string& outputFile) {
-  (void)initialAHGuesses;
-  (void)referencePoints;
-  (void)masses;
-  (void)outputFile;
-  // Call SolvePDEforAH() to obtain the solution AH function ($ \{h^{(f)}(\rho _I, \sigma _I)\}$)
-  //      for each valid reference point, and write it to an ASCII file. 
-  // The ASCII file should contain the list reference point ${s_i}$, and the list of tuples of 
-  //      $ \{h_i^{(f)}(\rho, \sigma)\}$ (i.e., the angular coordinates on the apparent horizon surface
-  //      and their h value).
-  // This function can be the external/public API for users. Users only need to call this function. 
-  //      All other functions/operations are encapsulated and handled internally by this function.
-  // – Input: Initial AH Guess functions ($ \{h_{i}^{(0)}(\rho _I, \sigma _I)\}$), Reference points 
-  //          ($\{s_i\}$), The black hole mass associated with corresponding reference points ($\{M_i\}$).
-  // – Output: ASCII file(s) contain all coordinate origins $\{s_i\}$ with a valid AH, and the 
-  //           list of tuples of corresponding $ \{h^{(f)}_i(\rho, \sigma)\}$.
+AHFinderResult WriteAHToFile(const GridData& gridData,
+                             const AHFinderOptions& finderOptions,
+                             const AHOutputOptions& outputOptions) {
+  ValidateAHFinderOptions(finderOptions);
+  ValidateAHOutputOptions(outputOptions);
+
+  const SpectralBasis basis = BuildSpectralBasis(finderOptions.lMax);
+  const CartesianPointInterpolator interpolator(
+    gridData, finderOptions.interpolation);
+  const SpectralNewtonResult solverResult = SolvePDEforAH(
+    basis,
+    interpolator,
+    finderOptions.referencePoint,
+    finderOptions.initialRadius,
+    finderOptions.solver
+  );
+  AHFinderResult result = BuildAHFinderResult(
+    basis, interpolator, finderOptions.referencePoint, solverResult);
+
+  WriteAHSummary(result, outputOptions.summaryFilename);
+  if (result.solver.converged && result.surfaceAvailable) {
+    WriteAHSurfaceToVTP(
+      result, outputOptions.surfaceFilename, outputOptions.visualization);
+  }
+  return result;
 }
 
 void WriteAHToVTK(const std::string& inputFile, const std::string& outputFile) {

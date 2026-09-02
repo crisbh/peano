@@ -2,6 +2,7 @@
 #define APPARENT_HORIZON_FINDER_OUTPUT_H_
 
 #include "ah-finder-result.h"
+#include "ah-finder-options.h"
 
 #include <array>
 #include <cstddef>
@@ -25,6 +26,16 @@ struct AHVisualizationSurface {
   std::vector<std::array<std::size_t, 3>> triangles;
 };
 
+/** Filenames and visualisation resolution for the single-horizon façade. */
+struct AHOutputOptions {
+  std::string summaryFilename = "apparent-horizon.txt";
+  std::string surfaceFilename = "apparent-horizon.vtp";
+  AHVisualizationOptions visualization{};
+};
+
+/** Validate output filenames and visualisation resolution before solving. */
+void ValidateAHOutputOptions(const AHOutputOptions& options);
+
 /** Write all solver and reconstructed-surface diagnostics as deterministic text. */
 void WriteAHSummary(const AHFinderResult& result, const std::string& filename);
 
@@ -45,12 +56,18 @@ void WriteAHSurfaceToVTP(
 );
 
 /**
- * Write the apparent-horizon hypersurface to an ASCII file.
+ * Complete single-horizon user workflow.
+ *
+ * The grid is referenced by one persistent CartesianPointInterpolator for the
+ * solve and final reconstruction. A summary is always written after a solver
+ * result is obtained. The normal VTP horizon is written only for a converged,
+ * reconstructable surface.
  */
-void WriteAHToFile(const std::vector<AHGuess>& initialAHGuesses,
-                   const std::vector<ReferencePoint>& referencePoints,
-                   const std::vector<double>& masses,
-                   const std::string& outputFile);
+AHFinderResult WriteAHToFile(
+  const GridData& gridData,
+  const AHFinderOptions& finderOptions,
+  const AHOutputOptions& outputOptions = {}
+);
 
 /**
  * Convert the ASCII apparent-horizon hypersurface output into a VTK file.

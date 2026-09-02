@@ -37,14 +37,39 @@ SourceVariableMapping SourceMapping() {
 void TestSampleT0UserWorkflow() {
   const auto totalStart = Clock::now();
 
-  std::cout << "[AHF] Building the spectral basis and initial guess..."
+  std::cout << "[AHF] Preparing AH finder and output options..."
             << std::endl;
   const auto setupStart = Clock::now();
-  const SpectralBasis basis = BuildSpectralBasis(2);
-  const ReferencePoint referencePoint{0.0, 0.0, 0.0};
-  constexpr double initialAHRadiusGuess = 0.9;
+  AHFinderOptions finderOptions;
+  finderOptions.referencePoint = {0.0, 0.0, 0.0};
+  finderOptions.initialRadius = 0.9;
+  finderOptions.lMax = 2;
+  finderOptions.interpolation = {
+    .method = CartesianToSurfaceMethod::RadiusWeightedPolynomial,
+    .polynomialDegree = 3,
+    .supportRadius = 0.1,
+    .rankToleranceMultiplier = 64.0,
+    .allowOrderReduction = false
+  };
+  finderOptions.solver = {
+    .tolerance = 1.0e-8,
+    .massScale = 1.0,
+    .maxIterations = 12,
+    .finiteDifferenceStep = 1.0e-6,
+    .maxLineSearchSteps = 20,
+    .maxRadiusFactor = 6.0
+  };
+  const std::filesystem::path outputDirectory =
+    std::filesystem::current_path();
+  const auto summaryPath = outputDirectory / "sample-t0-ah.txt";
+  const auto surfacePath = outputDirectory / "sample-t0-ah.vtp";
+  const AHOutputOptions outputOptions{
+    .summaryFilename = summaryPath.string(),
+    .surfaceFilename = surfacePath.string(),
+    .visualization = {32, 17}
+  };
   const auto setupFinish = Clock::now();
-  std::cout << "[AHF] Basis and initial-guess setup took "
+  std::cout << "[AHF] Option setup took "
             << Seconds(setupStart, setupFinish) << " s." << std::endl;
 
   std::cout << "[AHF] Loading Cartesian data from sample_t=0.vtu..."
@@ -57,51 +82,18 @@ void TestSampleT0UserWorkflow() {
             << " Cartesian cells in " << Seconds(loadStart, loadFinish)
             << " s." << std::endl;
 
-  std::cout << "[AHF] Constructing the persistent Cartesian interpolator..."
+  std::cout << "[AHF] Running the AH finder and writing its outputs..."
             << std::endl;
-  const auto interpolatorStart = Clock::now();
-  const CartesianPointInterpolator interpolator(
-    grid,
-    {
-      .method = CartesianToSurfaceMethod::RadiusWeightedPolynomial,
-      .polynomialDegree = 3,
-      .supportRadius = 0.1,
-      .rankToleranceMultiplier = 64.0,
-      .allowOrderReduction = false
-    }
-  );
-  const auto interpolatorFinish = Clock::now();
-  std::cout << "[AHF] Interpolator construction took "
-            << Seconds(interpolatorStart, interpolatorFinish) << " s."
-            << std::endl;
-
-  const SpectralNewtonOptions options{
-    .tolerance = 1.0e-8,
-    .massScale = 1.0,
-    .maxIterations = 12,
-    .finiteDifferenceStep = 1.0e-6,
-    .maxLineSearchSteps = 20,
-    .maxRadiusFactor = 6.0
-  };
-
-  std::cout << "[AHF] Iterating the apparent-horizon equation..."
-            << std::endl;
+  std::cout << "[AHF] Numerical summary: " << summaryPath << std::endl;
+  std::cout << "[AHF] ParaView surface: " << surfacePath << std::endl;
   const auto solveStart = Clock::now();
-  const SpectralNewtonResult result = SolvePDEforAH(
-    basis, interpolator, referencePoint, initialAHRadiusGuess, options
-  );
+  const AHFinderResult horizon = WriteAHToFile(
+    grid, finderOptions, outputOptions);
   const auto solveFinish = Clock::now();
-  assert(result.converged);
-  std::cout << "[AHF] Iteration converged after " << result.iterations
-            << " Newton iterations in " << Seconds(solveStart, solveFinish)
-            << " s." << std::endl;
-
-  std::cout << "[AHF] Reconstructing and validating the final horizon..."
-            << std::endl;
-  const auto reconstructionStart = Clock::now();
-  const AHFinderResult horizon = BuildAHFinderResult(
-    basis, interpolator, referencePoint, result
-  );
+  assert(horizon.solver.converged);
+  std::cout << "[AHF] Iteration converged after " << horizon.solver.iterations
+            << " Newton iterations; reconstruction and output took "
+            << Seconds(solveStart, solveFinish) << " s." << std::endl;
 
   constexpr double expectedRadius = 0.5;
   constexpr double radiusTolerance = 1.0e-2;
@@ -109,19 +101,15 @@ void TestSampleT0UserWorkflow() {
   std::cout << "[AHF] Finished: mean AH radius = " << horizon.meanRadius
             << ", expected = " << expectedRadius << std::endl;
 
-  const auto reconstructionFinish = Clock::now();
-  std::cout << "[AHF] Final reconstruction and validation took "
-            << Seconds(reconstructionStart, reconstructionFinish) << " s."
-            << std::endl
-            << "[AHF] Total wall-clock time: "
-            << Seconds(totalStart, reconstructionFinish) << " s."
+  std::cout << "[AHF] Total wall-clock time: "
+            << Seconds(totalStart, solveFinish) << " s."
             << std::endl;
 
   assert(horizon.solver.converged);
   assert(horizon.surfaceAvailable);
-  assert(horizon.referencePoint.x == referencePoint.x);
-  assert(horizon.referencePoint.y == referencePoint.y);
-  assert(horizon.referencePoint.z == referencePoint.z);
+  assert(horizon.referencePoint.x == finderOptions.referencePoint.x);
+  assert(horizon.referencePoint.y == finderOptions.referencePoint.y);
+  assert(horizon.referencePoint.z == finderOptions.referencePoint.z);
   assert(std::isfinite(horizon.minRadius));
   assert(std::isfinite(horizon.meanRadius));
   assert(std::isfinite(horizon.maxRadius));
@@ -132,16 +120,6 @@ void TestSampleT0UserWorkflow() {
   assert(!horizon.solver.coefficients.empty());
   assert(std::abs(horizon.meanRadius - expectedRadius) < radiusTolerance);
 
-  const std::filesystem::path outputDirectory =
-    std::filesystem::current_path();
-  const auto summaryPath = outputDirectory / "sample-t0-ah.txt";
-  const auto surfacePath = outputDirectory / "sample-t0-ah.vtp";
-  std::cout << "[AHF] Writing numerical summary to " << summaryPath
-            << std::endl;
-  WriteAHSummary(horizon, summaryPath.string());
-  std::cout << "[AHF] Writing ParaView surface to " << surfacePath
-            << std::endl;
-  WriteAHSurfaceToVTP(horizon, surfacePath.string(), {32, 17});
   assert(std::filesystem::is_regular_file(summaryPath));
   assert(std::filesystem::file_size(summaryPath) > 0);
   assert(std::filesystem::is_regular_file(surfacePath));
@@ -153,15 +131,13 @@ void TestSampleT0UserWorkflow() {
   assert(summaryText.str().find("solver.converged = true") != std::string::npos);
   assert(summaryText.str().find("meanRadius = ") != std::string::npos);
 
-  const AHVisualizationSurface visual =
-    BuildAHVisualizationSurface(horizon, {32, 17});
-  assert(!visual.points.empty());
-  assert(!visual.triangles.empty());
-  for (const auto& point : visual.points) {
-    assert(std::isfinite(point[0]));
-    assert(std::isfinite(point[1]));
-    assert(std::isfinite(point[2]));
-  }
+  std::ifstream surfaceInput(surfacePath);
+  std::ostringstream surfaceText;
+  surfaceText << surfaceInput.rdbuf();
+  assert(surfaceText.str().find("NumberOfPoints=\"") != std::string::npos);
+  assert(surfaceText.str().find("NumberOfPolys=\"") != std::string::npos);
+  assert(surfaceText.str().find("nan") == std::string::npos);
+  assert(surfaceText.str().find("inf") == std::string::npos);
 
 }
 
