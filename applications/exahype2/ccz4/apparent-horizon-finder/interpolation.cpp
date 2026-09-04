@@ -835,6 +835,25 @@ CartesianPointInterpolator::CartesianPointInterpolator(
   );
 }
 
+bool CartesianPointInterpolator::coversTarget(const GridCoordinate& target
+) const {
+  if (!std::isfinite(target.x) || !std::isfinite(target.y)
+      || !std::isfinite(target.z)) {
+    return false;
+  }
+  const double outsideX = std::max(
+    {_domainMinimum.x - target.x, 0.0, target.x - _domainMaximum.x}
+  );
+  const double outsideY = std::max(
+    {_domainMinimum.y - target.y, 0.0, target.y - _domainMaximum.y}
+  );
+  const double outsideZ = std::max(
+    {_domainMinimum.z - target.z, 0.0, target.z - _domainMaximum.z}
+  );
+  return std::hypot(outsideX, outsideY, outsideZ)
+         <= _options.domainRelativeTolerance * _domainDiagonal;
+}
+
 void CartesianPointInterpolator::interpolatePoints(
   std::span<const GridCoordinate> targets,
   std::vector<InterpolatedCartesianPoint>& output
@@ -849,14 +868,7 @@ void CartesianPointInterpolator::interpolatePoints(
           || !std::isfinite(target.z)) {
         throw std::invalid_argument("target coordinate must be finite");
       }
-      const double outsideX = std::max(
-        {_domainMinimum.x - target.x, 0.0, target.x - _domainMaximum.x});
-      const double outsideY = std::max(
-        {_domainMinimum.y - target.y, 0.0, target.y - _domainMaximum.y});
-      const double outsideZ = std::max(
-        {_domainMinimum.z - target.z, 0.0, target.z - _domainMaximum.z});
-      if (std::hypot(outsideX, outsideY, outsideZ)
-          > _options.domainRelativeTolerance * _domainDiagonal) {
+      if (!coversTarget(target)) {
         throw std::out_of_range(
           "target lies outside the sampled Cartesian domain tolerance");
       }

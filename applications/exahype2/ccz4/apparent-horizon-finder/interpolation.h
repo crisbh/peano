@@ -240,6 +240,19 @@ public:
     const CartesianToSurfaceOptions& options = {}
   );
 
+  /**
+   * True when @p target lies inside the sampled Cartesian domain, widened by
+   * the configured domainRelativeTolerance. This is the same test
+   * interpolatePoints applies per point, exposed so a caller can reject an
+   * unusable reference point or initial radius up front instead of discovering
+   * it through non-finite residuals.
+   */
+  bool coversTarget(const GridCoordinate& target) const;
+
+  /** Corner-to-corner extent of the sampled domain, for diagnostics. */
+  GridCoordinate domainMinimum() const { return _domainMinimum; }
+  GridCoordinate domainMaximum() const { return _domainMaximum; }
+
   /** Reconstruct physical fields in exactly the order of @p targets. */
   void interpolatePoints(
     std::span<const GridCoordinate> targets,

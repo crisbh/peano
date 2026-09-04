@@ -4,6 +4,7 @@
 #include "interpolated-surface-residual.h"
 
 #include <cmath>
+#include <sstream>
 #include <stdexcept>
 
 namespace exahype2::ccz4::ahf {
@@ -23,6 +24,47 @@ SpectralNewtonResult SolvePDEforAH(
 
   const std::vector<double> initialCoefficients =
     MakeSphericalInitialCoefficients(basis, initialRadius);
+
+  // Reject an initial sphere the data cannot cover before spending a Newton
+  // solve on it. Without this the interpolator fails at every collocation
+  // point, the residual is non-finite from the first evaluation, and the
+  // failure surfaces far from its cause.
+  {
+    const SynthesizedField field = Synthesize(basis, initialCoefficients);
+    for (std::size_t p = 0; p < basis.nPoints; ++p) {
+      const AHGuessPoint   guessPoint{field.h[p], basis.rho[p], basis.sigma[p]};
+      const GridCoordinate target = SurfacePointToCartesian(
+        guessPoint,
+        referencePoint
+      );
+      if (!interpolator.coversTarget(target)) {
+        const GridCoordinate low  = interpolator.domainMinimum();
+        const GridCoordinate high = interpolator.domainMaximum();
+        std::ostringstream   message;
+        message
+          << "SolvePDEforAH: the initial guess leaves the sampled domain. "
+          << "Reference point (" << referencePoint.x << ", " << referencePoint.y
+          << ", " << referencePoint.z << ") with radius " << initialRadius
+          << " puts collocation point " << p << " at (" << target.x << ", "
+          << target.y << ", " << target.z << "), outside the sampled bounds ["
+          << low.x << ", " << high.x << "] x [" << low.y << ", " << high.y
+          << "] x [" << low.z << ", " << high.z
+          << "]. Move the reference point towards the data or reduce the "
+             "initial radius.";
+        // Reported, not thrown: an unreachable initial guess is a statement
+        // about the data and the guess, not a bug, and callers that search over
+        // candidate reference points must be able to try the next one without
+        // unwinding. Contrast initialRadius above, which is a precondition
+        // violation and does throw.
+        SpectralNewtonResult rejected;
+        rejected.coefficients = initialCoefficients;
+        rejected.converged    = false;
+        rejected.iterations   = 0;
+        rejected.message      = message.str();
+        return rejected;
+      }
+    }
+  }
   const SpectralResidual residual = detail::MakeInterpolatedSurfaceResidual(
     basis, interpolator, referencePoint
   );
