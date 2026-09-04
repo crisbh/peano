@@ -1,12 +1,13 @@
+#include "../../apparent-horizon-finder.h"
+
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <numbers>
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-#include "../../apparent-horizon-finder.h"
 
 namespace exahype2::ccz4::ahf::tests::spectral_solver {
 
@@ -112,7 +113,68 @@ void testRunawayGuardFlagsDivergence() {
   std::cout << "Runaway guard flags divergence: \"" << result.message << "\"" << std::endl;
 }
 
+
+// A NaN anywhere in the matrix must be rejected, not silently eliminated.
+// std::max(a, b) is `a < b ? b : a`, so a NaN pivot compares false against the
+// running best and a `best == 0.0` guard would let it through, returning a NaN
+// solution that the caller cannot distinguish from a real step.
+void testSingularGuardRejectsNaN() {
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+
+  bool threw = false;
+  try {
+    SolveLinearSystem({{nan, 0.0}, {0.0, 1.0}}, {1.0, 1.0});
+  } catch (const std::runtime_error&) {
+    threw = true;
+  }
+  assert(threw);
+
+  // An all-zero column must still be rejected, as before.
+  threw = false;
+  try {
+    SolveLinearSystem({{0.0, 0.0}, {0.0, 1.0}}, {1.0, 1.0});
+  } catch (const std::runtime_error&) {
+    threw = true;
+  }
+  assert(threw);
+
+  // A well-conditioned system is unaffected.
+  const std::vector<double>
+    x = SolveLinearSystem({{2.0, 0.0}, {0.0, 4.0}}, {2.0, 8.0});
+  assert(approxEqual(x[0], 1.0, 1.0e-12));
+  assert(approxEqual(x[1], 2.0, 1.0e-12));
+
+  std::cout
+    << "Singular guard rejects a NaN pivot and an empty column" << std::endl;
+}
+
+// An all-NaN residual must not read as converged: NormInfinity has to let NaN
+// dominate, or ||R||_inf comes back as 0 and passes the tolerance test.
+void testNonFiniteInitialResidualIsNotConvergence() {
+  const SpectralBasis    basis = BuildSpectralBasis(2);
+  const SpectralResidual residual =
+    [&basis](const std::vector<double>&) -> std::vector<double> {
+    return std::vector<double>(
+      basis.nModes,
+      std::numeric_limits<double>::quiet_NaN()
+    );
+  };
+
+  const SpectralNewtonResult result = SolveSpectralNewton(
+    basis,
+    residual,
+    SphereCoefficients(basis, 1.0)
+  );
+
+  assert(!result.converged);
+  assert(result.message.find("non-finite residual") != std::string::npos);
+  std::cout
+    << "An all-NaN initial residual reports \"" << result.message << "\""
+    << std::endl;
+}
+
 }  // namespace exahype2::ccz4::ahf::tests::spectral_solver
+
 
 int main() {
   using namespace exahype2::ccz4::ahf::tests::spectral_solver;
@@ -122,6 +184,11 @@ int main() {
   testDenseLinearSolve();
   testNewtonConvergesToKnownSphere();
   testRunawayGuardFlagsDivergence();
+
+  testSingularGuardRejectsNaN();
+
+  testNonFiniteInitialResidualIsNotConvergence();
+
 
   std::cout << "All spectral-solver tests completed." << std::endl;
   return 0;

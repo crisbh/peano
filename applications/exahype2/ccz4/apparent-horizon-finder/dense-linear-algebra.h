@@ -45,7 +45,7 @@ inline std::vector<double> SolveLinearSystem(std::vector<std::vector<double>> A,
         pivot = row;
       }
     }
-    if (best == 0.0) {
+    if (!(best > 0.0)) {
       throw std::runtime_error("SolveLinearSystem: singular matrix");
     }
     if (pivot != col) {

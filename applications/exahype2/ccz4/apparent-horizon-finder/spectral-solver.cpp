@@ -18,7 +18,13 @@ namespace {
 double NormInfinity(const std::vector<double>& v) {
   double norm = 0.0;
   for (double value : v) {
-    norm = std::max(norm, std::abs(value));
+    const double magnitude = std::abs(value);
+    // std::max(a, b) is `a < b ? b : a`, and any comparison against NaN is
+    // false, so std::max(norm, NaN) would return norm.
+    if (std::isnan(magnitude)) {
+      return magnitude;
+    }
+    norm = std::max(norm, magnitude);
   }
   return norm;
 }
@@ -93,6 +99,22 @@ SpectralNewtonResult SolveSpectralNewton(const SpectralBasis& basis,
   double residualNorm = NormInfinity(R);
   result.residualHistory.push_back(residualNorm);
 
+  // A non-finite residual from the very first evaluation is a property of the
+  // initial guess, not of anything the iteration did: the trial surface could
+  // not be evaluated at all (e.g. outside the data domain, unavailable
+  // derivatives, invalid geometry).
+  // This is reported separately to avoid confusion with other failures, e.g.
+  // convergence failure.
+  if (!AllFinite(R)) {
+  result.coefficients = a;
+  result.converged    = false;
+  result.iterations   = 0;
+  result.message
+    = "initial guess produced a non-finite residual (surface not evaluable: "
+      "check the reference point, the initial radius, and the data domain)";
+  return result;
+  }
+
   if (options.recordIterationHistory) {
     result.iterationHistory.push_back(
       RecordIterate(0, a, R, 1.0, Synthesize(basis, a).h)
@@ -144,10 +166,13 @@ SpectralNewtonResult SolveSpectralNewton(const SpectralBasis& basis,
     std::vector<double> aTrial;
     std::vector<double> residualTrial;
     bool accepted = false;
+    bool                anyTrialFinite = false;
     for (int lineSearchStep = 0; lineSearchStep < options.maxLineSearchSteps; ++lineSearchStep) {
       aTrial = Step(a, lambda, delta);
       residualTrial = residual(aTrial);
-      if (AllFinite(residualTrial) && NormTwo(residualTrial) < referenceNorm) {
+      const bool finite = AllFinite(residualTrial);
+      anyTrialFinite    = anyTrialFinite || finite;
+      if (finite && NormTwo(residualTrial) < referenceNorm) {
         accepted = true;
         break;
       }
@@ -157,7 +182,12 @@ SpectralNewtonResult SolveSpectralNewton(const SpectralBasis& basis,
       result.coefficients = a;
       result.converged = false;
       result.iterations = iteration;
-      result.message = "line search failed";
+      // Two different faults share this exit: every trial surface was
+      // unevaluable, or they were evaluable but none reduced the residual.
+      result.message
+        = anyTrialFinite
+            ? "line search failed (no trial step reduced the residual)"
+            : "line search failed (every trial surface was non-finite)";
       return result;
     }
 
