@@ -29,14 +29,6 @@ SpectralNewtonResult SolvePDEforAH(
 );
 
 /**
- * Solve the apparent-horizon PDE problem iteratively.
- */
-void SolvePDEforAH(const AHGuess& initialAHGuess,
-                   const ReferencePoint& referencePoint,
-                   const std::vector<double>& masses,
-                   AHGuess& solvedAHGuess);
-
-/**
  * Determine whether a common-horizon search should be triggered for a binary-black-hole setup.
  */
 void CheckCommonHorizonOfBBH(const AHGuess& initialAHGuess,

@@ -31,53 +31,6 @@ SpectralNewtonResult SolvePDEforAH(
   );
 }
 
-void SolvePDEforAH(const AHGuess& initialAHGuess,
-                   const ReferencePoint& referencePoint,
-                   const std::vector<double>& masses,
-                   AHGuess& solvedAHGuess) {
-  (void)initialAHGuess;
-  (void)referencePoint;
-  (void)masses;
-  (void)solvedAHGuess;
-  // Call InterpolateFromCartesianToShell() [though this function is called in every iteration,
-  //      it would not do anything except the very first iteration and the two cases state above],
-  //      InterpolateFromShellToSurface() and AssembleGlobalMatrix(), then determine the new AH
-  //      guess function ($ \{h^{(k+1)}(\rho _I, \sigma _I)\}$) (say, use Newton-Raphson). Call
-  //      the functions again. Repeat until convergence using the mass-scaled threshold.
-  // Notice we are on a 2D surface, so no boundary condition is required (natural periodic BC).
-  // We search the AH one by one (i.e., try the first set of a reference point, black hole mass,
-  //      and initial AH guess; then move to the next set).
-  // We may also consider Picard iteration, as the physics quantities near the AH should change
-  //      smoothly enough.
-  // – Input: Initial AH Guess functions ($ \{h_{i}^{(0)}(\rho _I, \sigma _I)\}$), Reference
-  //      points($\{s_i\}$), The black hole mass associated with corresponding reference points.
-  // – Output: Solution AH function ($ \{h_i^{(f)}(\rho _I, \sigma _I)\}$).
-  // This function can accept multiple reference points and the corresponding initial guesses.
-  //     The threshold of iteration stop would depend on the input black hole mass (scaled by that).
-  // Failing control: If one initial guess fails, we trigger a two-step scheme:
-  // 1. The resolution on the surface may not be good enough, so we should refine our sample points
-  //    and call the interpolation function to initialize the data structure again. We would always
-  //    do this refine-retry first when an AH search fails. However, we set an upper limit of
-  //    resolution here, and if we still fail when the limit is reached, we stop and switch to step 2.
-  // 2. This initial guess is wrong (including reference point choice and/or initial guess on $h$),
-  //    so we move to the next set of initial guess.
-  //
-  // Spectral solver wiring (see spectral-solver.h). Per reference point / mass:
-  //   1. build the basis:  const SpectralBasis basis = BuildSpectralBasis(lmax);
-  //   2. initial coefficients from the guess sphere:  SphereCoefficients(basis, r0);
-  //   3. residual R(a): synthesise h = Synthesize(basis, a).h, set AHGuess radii to
-  //      h, InterpolateFromShellToSurface(shell, guess, s0, surface), then
-  //      AssembleGlobalMatrix(surface, basis, matrixCoefficients, residuals) -> R;
-  //   4. SolveSpectralNewton(basis, residual, initialCoefficients, {.massScale = mass})
-  //      runs the damped Newton (dense FD Jacobian, LU, line search, runaway guard);
-  //   5. write the converged radii Synthesize(basis, result.coefficients).h back into
-  //      solvedAHGuess.
-  // Completing this function additionally needs (a) the shell/surface interpolation
-  // (InterpolateFromShellToSurface) so the residual sees real geometry, 
-  // and (b) a grid/geometry source plus the basis resolution, which are
-  // not in this function's current signature.
-}
-
 void CheckCommonHorizonOfBBH(const AHGuess& initialAHGuess,
                              const ReferencePoint& referencePoint,
                              const std::vector<double>& masses,
