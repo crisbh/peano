@@ -42,7 +42,7 @@ void TestSampleT0UserWorkflow() {
   const auto setupStart = Clock::now();
   AHSearchOptions searchOptions;
   searchOptions.attempts = {
-    {{8.0, 3.0, 1.0}, 200.0}, // deliberately outside the sampled domain
+    {{8.0, 3.0, 1.0}, 200.0}, // deliberately diverged initial guess
     {{10.0, 0.0, 0.0}, 0.2}, // deliberately outside the sampled domain
     {{0.0, 0.0, 0.0}, 0.9}, // expected to succeed
     {{0.0, 0.0, 0.0}, 0.7}, // expected to succeed, but will be skipped because the previous attempt already succeeded
