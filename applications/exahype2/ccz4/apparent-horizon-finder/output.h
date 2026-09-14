@@ -3,6 +3,7 @@
 
 #include "ah-finder-result.h"
 #include "ah-finder-options.h"
+#include "ah-search.h"
 
 #include <array>
 #include <cstddef>
@@ -66,6 +67,25 @@ void WriteAHSurfaceToVTP(
 AHFinderResult WriteAHToFile(
   const GridData& gridData,
   const AHFinderOptions& finderOptions,
+  const AHOutputOptions& outputOptions = {}
+);
+
+/**
+ * Write ordered diagnostics for every executed attempt and, on success, the
+ * selected horizon diagnostics.
+ */
+void WriteAHSearchSummary(
+  const AHSearchResult& result,
+  const std::string& filename
+);
+
+/**
+ * Multi-attempt user workflow. Attempts are paired entries tried in vector
+ * order; the first converged, reconstructable horizon stops the search.
+ */
+AHSearchResult WriteAHToFile(
+  const GridData& gridData,
+  const AHSearchOptions& searchOptions,
   const AHOutputOptions& outputOptions = {}
 );
 

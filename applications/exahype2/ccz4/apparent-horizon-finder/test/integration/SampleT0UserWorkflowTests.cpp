@@ -40,18 +40,23 @@ void TestSampleT0UserWorkflow() {
   std::cout << "[AHF] Preparing AH finder and output options..."
             << std::endl;
   const auto setupStart = Clock::now();
-  AHFinderOptions finderOptions;
-  finderOptions.referencePoint = {0.0, 0.0, 0.0};
-  finderOptions.initialRadius = 0.9;
-  finderOptions.lMax = 2;
-  finderOptions.interpolation = {
+  AHSearchOptions searchOptions;
+  searchOptions.attempts = {
+    {{8.0, 3.0, 1.0}, 200.0}, // deliberately outside the sampled domain
+    {{10.0, 0.0, 0.0}, 0.2}, // deliberately outside the sampled domain
+    {{0.0, 0.0, 0.0}, 0.9}, // expected to succeed
+    {{0.0, 0.0, 0.0}, 0.7}, // expected to succeed, but will be skipped because the previous attempt already succeeded
+    {{0.0, 0.0, 0.0}, 0.5} // expected to succeed, but will be skipped because the previous attempt already succeeded
+  };
+  searchOptions.lMax = 2;
+  searchOptions.interpolation = {
     .method = CartesianToSurfaceMethod::RadiusWeightedPolynomial,
     .polynomialDegree = 3,
     .supportRadius = 0.1,
     .rankToleranceMultiplier = 64.0,
     .allowOrderReduction = false
   };
-  finderOptions.solver = {
+  searchOptions.solver = {
     .tolerance = 1.0e-8,
     .massScale = 1.0,
     .maxIterations = 12,
@@ -87,10 +92,17 @@ void TestSampleT0UserWorkflow() {
   std::cout << "[AHF] Numerical summary: " << summaryPath << std::endl;
   std::cout << "[AHF] ParaView surface: " << surfacePath << std::endl;
   const auto solveStart = Clock::now();
-  const AHFinderResult horizon = WriteAHToFile(
-    grid, finderOptions, outputOptions);
+  const AHSearchResult search = WriteAHToFile(
+    grid, searchOptions, outputOptions);
   const auto solveFinish = Clock::now();
-  assert(horizon.solver.converged);
+  assert(search.converged);
+  assert(search.successfulAttempt == 2);
+  assert(search.attempts.size() == 3);
+  assert(!search.attempts[0].succeeded);
+  assert(!search.attempts[1].succeeded);
+  assert(search.attempts[2].succeeded);
+  assert(search.horizon.has_value());
+  const AHFinderResult& horizon = *search.horizon;
   std::cout << "[AHF] Iteration converged after " << horizon.solver.iterations
             << " Newton iterations; reconstruction and output took "
             << Seconds(solveStart, solveFinish) << " s." << std::endl;
@@ -107,9 +119,9 @@ void TestSampleT0UserWorkflow() {
 
   assert(horizon.solver.converged);
   assert(horizon.surfaceAvailable);
-  assert(horizon.referencePoint.x == finderOptions.referencePoint.x);
-  assert(horizon.referencePoint.y == finderOptions.referencePoint.y);
-  assert(horizon.referencePoint.z == finderOptions.referencePoint.z);
+  assert(horizon.referencePoint.x == searchOptions.attempts[2].referencePoint.x);
+  assert(horizon.referencePoint.y == searchOptions.attempts[2].referencePoint.y);
+  assert(horizon.referencePoint.z == searchOptions.attempts[2].referencePoint.z);
   assert(std::isfinite(horizon.minRadius));
   assert(std::isfinite(horizon.meanRadius));
   assert(std::isfinite(horizon.maxRadius));
@@ -128,8 +140,15 @@ void TestSampleT0UserWorkflow() {
   std::ifstream summaryInput(summaryPath);
   std::ostringstream summaryText;
   summaryText << summaryInput.rdbuf();
-  assert(summaryText.str().find("solver.converged = true") != std::string::npos);
-  assert(summaryText.str().find("meanRadius = ") != std::string::npos);
+  assert(summaryText.str().find("converged = true") != std::string::npos);
+  assert(summaryText.str().find("successfulAttempt = 2") != std::string::npos);
+  assert(summaryText.str().find("attempts[0].succeeded = false") !=
+         std::string::npos);
+  assert(summaryText.str().find("attempts[1].succeeded = false") !=
+         std::string::npos);
+  assert(summaryText.str().find("attempts[2].succeeded = true") !=
+         std::string::npos);
+  assert(summaryText.str().find("horizon.meanRadius = ") != std::string::npos);
 
   std::ifstream surfaceInput(surfacePath);
   std::ostringstream surfaceText;

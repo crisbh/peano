@@ -136,6 +136,66 @@ void WriteAHSummary(const AHFinderResult& result, const std::string& filename) {
   }
 }
 
+void WriteAHSearchSummary(const AHSearchResult& result,
+                          const std::string& filename) {
+  std::ofstream output = OpenOutput(filename);
+  output << std::setprecision(std::numeric_limits<double>::max_digits10)
+         << std::boolalpha
+         << "AHSearchSummaryVersion = 1\n"
+         << "converged = " << result.converged << '\n';
+  if (result.converged) {
+    output << "successfulAttempt = " << result.successfulAttempt << '\n';
+  } else {
+    output << "successfulAttempt = unavailable\n";
+  }
+  output << "attempts.count = " << result.attempts.size() << '\n';
+  for (std::size_t i = 0; i < result.attempts.size(); ++i) {
+    const AHSearchAttemptResult& attempt = result.attempts[i];
+    const std::string prefix = "attempts[" + std::to_string(i) + "].";
+    output << prefix << "referencePoint = " << attempt.referencePoint.x << ' '
+           << attempt.referencePoint.y << ' ' << attempt.referencePoint.z << '\n'
+           << prefix << "initialRadius = " << attempt.initialRadius << '\n'
+           << prefix << "succeeded = " << attempt.succeeded << '\n'
+           << prefix << "solver.converged = "
+           << attempt.result.solver.converged << '\n'
+           << prefix << "surfaceAvailable = "
+           << attempt.result.surfaceAvailable << '\n'
+           << prefix << "solver.iterations = "
+           << attempt.result.solver.iterations << '\n'
+           << prefix << "solver.message = "
+           << std::quoted(attempt.result.solver.message) << '\n'
+           << prefix << "residualHistory.count = "
+           << attempt.result.solver.residualHistory.size() << '\n';
+    for (std::size_t j = 0;
+         j < attempt.result.solver.residualHistory.size(); ++j) {
+      output << prefix << "residualHistory[" << j << "] = "
+             << attempt.result.solver.residualHistory[j] << '\n';
+    }
+  }
+  if (result.converged && result.horizon.has_value()) {
+    const AHFinderResult& horizon = *result.horizon;
+    output << "horizon.referencePoint = " << horizon.referencePoint.x << ' '
+           << horizon.referencePoint.y << ' ' << horizon.referencePoint.z << '\n'
+           << "horizon.lMax = " << horizon.lMax << '\n'
+           << "horizon.minRadius = " << horizon.minRadius << '\n'
+           << "horizon.meanRadius = " << horizon.meanRadius << '\n'
+           << "horizon.maxRadius = " << horizon.maxRadius << '\n'
+           << "horizon.spectralResidualInfinityNorm = "
+           << horizon.spectralResidualInfinityNorm << '\n'
+           << "horizon.maxAbsExpansion = " << horizon.maxAbsExpansion << '\n'
+           << "horizon.coefficients.count = "
+           << horizon.solver.coefficients.size() << '\n';
+    for (std::size_t i = 0; i < horizon.solver.coefficients.size(); ++i) {
+      output << "horizon.coefficients[" << i << "] = "
+             << horizon.solver.coefficients[i] << '\n';
+    }
+  }
+  if (!output) {
+    throw std::runtime_error(
+      "Failed while writing AH search summary: " + filename);
+  }
+}
+
 AHVisualizationSurface BuildAHVisualizationSurface(
   const AHFinderResult& result, const AHVisualizationOptions& options) {
   ValidateVisualizationOptions(options);
@@ -258,6 +318,24 @@ AHFinderResult WriteAHToFile(const GridData& gridData,
   if (result.solver.converged && result.surfaceAvailable) {
     WriteAHSurfaceToVTP(
       result, outputOptions.surfaceFilename, outputOptions.visualization);
+  }
+  return result;
+}
+
+AHSearchResult WriteAHToFile(const GridData& gridData,
+                             const AHSearchOptions& searchOptions,
+                             const AHOutputOptions& outputOptions) {
+  ValidateAHSearchOptions(searchOptions);
+  ValidateAHOutputOptions(outputOptions);
+
+  AHSearchResult result = FindApparentHorizon(gridData, searchOptions);
+  WriteAHSearchSummary(result, outputOptions.summaryFilename);
+  if (result.converged && result.horizon.has_value()) {
+    WriteAHSurfaceToVTP(
+      *result.horizon,
+      outputOptions.surfaceFilename,
+      outputOptions.visualization
+    );
   }
   return result;
 }
