@@ -34,6 +34,22 @@ struct AHOutputOptions {
   AHVisualizationOptions visualization{};
 };
 
+/**
+ * Output configuration for a search containing several physical horizons.
+ *
+ * The aggregate diagnostic is written to summaryFilename. For every
+ * successful target i, the per-horizon files are derived deterministically as
+ *
+ *   horizonFilenamePrefix + "-" + i + "-" + target-id + ".txt/.vtp".
+ *
+ * Characters in target-id which are unsafe in a filename are replaced by '_'.
+ */
+struct AHMultiHorizonOutputOptions {
+  std::string summaryFilename = "apparent-horizons.txt";
+  std::string horizonFilenamePrefix = "apparent-horizon";
+  AHVisualizationOptions visualization{};
+};
+
 /** Validate output filenames and visualisation resolution before solving. */
 void ValidateAHOutputOptions(const AHOutputOptions& options);
 
@@ -79,6 +95,12 @@ void WriteAHSearchSummary(
   const std::string& filename
 );
 
+/** Write every executed target/attempt and any selected horizon diagnostics. */
+void WriteAHMultiHorizonSummary(
+  const AHMultiHorizonResult& result,
+  const std::string& filename
+);
+
 /**
  * Multi-attempt user workflow. Attempts are paired entries tried in vector
  * order; the first converged, reconstructable horizon stops the search.
@@ -87,6 +109,17 @@ AHSearchResult WriteAHToFile(
   const GridData& gridData,
   const AHSearchOptions& searchOptions,
   const AHOutputOptions& outputOptions = {}
+);
+
+/**
+ * Complete multi-horizon workflow. All targets are searched. The aggregate
+ * summary is always written after the searches complete; each converged,
+ * reconstructable target receives its own numerical summary and VTP surface.
+ */
+AHMultiHorizonResult WriteAHToFile(
+  const GridData& gridData,
+  const AHMultiHorizonOptions& searchOptions,
+  const AHMultiHorizonOutputOptions& outputOptions = {}
 );
 
 /**

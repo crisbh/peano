@@ -239,6 +239,69 @@ void TestPhysicalTargetValidation() {
   assert(threw);
 }
 
+void TestPhysicalTargetOutput() {
+  const GridData grid = MakeGrid();
+  const auto directory = std::filesystem::temp_directory_path();
+  const auto aggregate = directory / "ahf-multi-horizon-summary.txt";
+  const auto prefix = directory / "ahf-multi-horizon";
+  const auto missingSummary = directory / "ahf-multi-horizon-0-missing.txt";
+  const auto missingSurface = directory / "ahf-multi-horizon-0-missing.vtp";
+  const auto plusSummary = directory / "ahf-multi-horizon-1-BH_plus.txt";
+  const auto plusSurface = directory / "ahf-multi-horizon-1-BH_plus.vtp";
+  const auto commonSummary = directory / "ahf-multi-horizon-2-common.txt";
+  const auto commonSurface = directory / "ahf-multi-horizon-2-common.vtp";
+  for (const auto& path : {aggregate, missingSummary, missingSurface,
+                           plusSummary, plusSurface, commonSummary,
+                           commonSurface}) {
+    std::filesystem::remove(path);
+  }
+
+  const AHMultiHorizonResult result = WriteAHToFile(
+    grid,
+    MultiOptions({
+      {.id = "missing", .attempts = {{{100.0, 0.0, 0.0}, 1.0}}},
+      {.id = "BH plus", .attempts = {{{0.25, 0.0, 0.0}, 1.3}}},
+      {.id = "common", .kind = AHHorizonKind::Common,
+       .attempts = {{{0.0, 0.0, 0.0}, 1.3}}}
+    }),
+    {.summaryFilename = aggregate.string(),
+     .horizonFilenamePrefix = prefix.string(),
+     .visualization = {9, 6}}
+  );
+
+  assert(result.anyHorizonFound);
+  assert(!result.allTargetsFound);
+  assert(std::filesystem::is_regular_file(aggregate));
+  assert(!std::filesystem::exists(missingSummary));
+  assert(!std::filesystem::exists(missingSurface));
+  assert(std::filesystem::is_regular_file(plusSummary));
+  assert(std::filesystem::is_regular_file(plusSurface));
+  assert(std::filesystem::is_regular_file(commonSummary));
+  assert(std::filesystem::is_regular_file(commonSurface));
+
+  const std::string aggregateText = ReadText(aggregate);
+  assert(aggregateText.find("AHMultiHorizonSummaryVersion = 1") !=
+         std::string::npos);
+  assert(aggregateText.find("anyHorizonFound = true") != std::string::npos);
+  assert(aggregateText.find("allTargetsFound = false") != std::string::npos);
+  assert(aggregateText.find("targets.count = 3") != std::string::npos);
+  assert(aggregateText.find("targets[0].id = \"missing\"") !=
+         std::string::npos);
+  assert(aggregateText.find("targets[0].solver.message") == std::string::npos);
+  assert(aggregateText.find("targets[0].attempts[0].solver.message") !=
+         std::string::npos);
+  assert(aggregateText.find("targets[1].id = \"BH plus\"") !=
+         std::string::npos);
+  assert(aggregateText.find("targets[2].kind = common") != std::string::npos);
+  assert(ReadText(plusSurface).find("NumberOfPoints=\"38\"") !=
+         std::string::npos);
+
+  for (const auto& path : {aggregate, plusSummary, plusSurface, commonSummary,
+                           commonSurface}) {
+    std::filesystem::remove(path);
+  }
+}
+
 }  // namespace
 }  // namespace exahype2::ccz4::ahf::tests
 
@@ -251,4 +314,5 @@ int main() {
   exahype2::ccz4::ahf::tests::TestPhysicalTargetGrouping();
   exahype2::ccz4::ahf::tests::TestPhysicalTargetPartialSuccess();
   exahype2::ccz4::ahf::tests::TestPhysicalTargetValidation();
+  exahype2::ccz4::ahf::tests::TestPhysicalTargetOutput();
 }

@@ -2,7 +2,10 @@
 #include "../../file-input.h"
 
 #include <cassert>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
@@ -45,6 +48,42 @@ AHMultiHorizonOptions BaseOptions(double supportRadius) {
   return options;
 }
 
+AHMultiHorizonOutputOptions DatasetOutput(const std::string& name) {
+  return {
+    .summaryFilename = name + "-summary.txt",
+    .horizonFilenamePrefix = name,
+    .visualization = {32, 17}
+  };
+}
+
+bool KeepTestOutputs() {
+  const char* value = std::getenv("AHF_KEEP_TEST_OUTPUTS");
+  return value != nullptr && std::string(value) == "1";
+}
+
+void RemoveOutput(const AHMultiHorizonOutputOptions& output,
+                  const AHMultiHorizonResult& result) {
+  if (KeepTestOutputs()) {
+    std::cout << "[AHF] Keeping multi-horizon test outputs in "
+              << std::filesystem::current_path() << "\n";
+    return;
+  }
+  std::filesystem::remove(output.summaryFilename);
+  for (std::size_t i = 0; i < result.targets.size(); ++i) {
+    std::string id = result.targets[i].id;
+    for (char& character : id) {
+      if (!std::isalnum(static_cast<unsigned char>(character)) &&
+          character != '-' && character != '_' && character != '.') {
+        character = '_';
+      }
+    }
+    const std::string base = output.horizonFilenamePrefix + "-" +
+      std::to_string(i) + "-" + id;
+    std::filesystem::remove(base + ".txt");
+    std::filesystem::remove(base + ".vtp");
+  }
+}
+
 void TestSeparatedIndividualHorizons() {
   std::cout << "[AHF] Loading separated D=2 two-puncture dataset...\n";
   GridData grid;
@@ -70,7 +109,9 @@ void TestSeparatedIndividualHorizons() {
     }
   };
 
-  const AHMultiHorizonResult result = FindApparentHorizons(grid, options);
+  const AHMultiHorizonOutputOptions output =
+    DatasetOutput("ahf-two-punctures-separated");
+  const AHMultiHorizonResult result = WriteAHToFile(grid, options, output);
   assert(result.allTargetsFound);
   assert(result.targets.size() == 2);
   for (std::size_t i = 0; i < result.targets.size(); ++i) {
@@ -83,7 +124,13 @@ void TestSeparatedIndividualHorizons() {
     assert(target.horizon->surfaceAvailable);
     assert(target.horizon->meanRadius > 0.19);
     assert(target.horizon->meanRadius < 0.22);
+    const std::string base = output.horizonFilenamePrefix + "-" +
+      std::to_string(i) + "-" + target.id;
+    assert(std::filesystem::is_regular_file(base + ".txt"));
+    assert(std::filesystem::is_regular_file(base + ".vtp"));
   }
+  assert(std::filesystem::is_regular_file(output.summaryFilename));
+  RemoveOutput(output, result);
 }
 
 void TestCloseCommonHorizon() {
@@ -102,7 +149,9 @@ void TestCloseCommonHorizon() {
                  {{0.0, 0.0, 0.0}, 1.125}}
   }};
 
-  const AHMultiHorizonResult result = FindApparentHorizons(grid, options);
+  const AHMultiHorizonOutputOptions output =
+    DatasetOutput("ahf-two-punctures-close");
+  const AHMultiHorizonResult result = WriteAHToFile(grid, options, output);
   assert(result.allTargetsFound);
   assert(result.targets.size() == 1);
   const AHHorizonTargetResult& common = result.targets.front();
@@ -112,6 +161,12 @@ void TestCloseCommonHorizon() {
   assert(common.horizon.has_value());
   assert(common.horizon->surfaceAvailable);
   assert(std::abs(common.horizon->meanRadius - 0.46142331149) < 1.0e-3);
+  assert(std::filesystem::is_regular_file(output.summaryFilename));
+  assert(std::filesystem::is_regular_file(
+    output.horizonFilenamePrefix + "-0-common.txt"));
+  assert(std::filesystem::is_regular_file(
+    output.horizonFilenamePrefix + "-0-common.vtp"));
+  RemoveOutput(output, result);
 }
 
 }  // namespace

@@ -4,6 +4,7 @@
 #include "iteration.h"
 
 #include <cmath>
+#include <cctype>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -12,6 +13,29 @@
 
 namespace exahype2::ccz4::ahf {
 namespace {
+
+const char* HorizonKindName(AHHorizonKind kind) {
+  return kind == AHHorizonKind::Common ? "common" : "individual";
+}
+
+std::string SafeFilenameId(const std::string& id) {
+  std::string safe = id;
+  for (char& character : safe) {
+    const unsigned char value = static_cast<unsigned char>(character);
+    if (!std::isalnum(value) && character != '-' && character != '_' &&
+        character != '.') {
+      character = '_';
+    }
+  }
+  return safe;
+}
+
+std::string TargetFilename(const AHMultiHorizonOutputOptions& options,
+                           std::size_t targetIndex, const std::string& targetId,
+                           const char* extension) {
+  return options.horizonFilenamePrefix + "-" + std::to_string(targetIndex) +
+         "-" + SafeFilenameId(targetId) + extension;
+}
 
 void ValidateVisualizationOptions(const AHVisualizationOptions& options) {
   if (options.numberOfRhoPoints < 3) {
@@ -196,6 +220,75 @@ void WriteAHSearchSummary(const AHSearchResult& result,
   }
 }
 
+void WriteAHMultiHorizonSummary(const AHMultiHorizonResult& result,
+                                const std::string& filename) {
+  std::ofstream output = OpenOutput(filename);
+  output << std::setprecision(std::numeric_limits<double>::max_digits10)
+         << std::boolalpha
+         << "AHMultiHorizonSummaryVersion = 1\n"
+         << "anyHorizonFound = " << result.anyHorizonFound << '\n'
+         << "allTargetsFound = " << result.allTargetsFound << '\n'
+         << "targets.count = " << result.targets.size() << '\n';
+
+  for (std::size_t i = 0; i < result.targets.size(); ++i) {
+    const AHHorizonTargetResult& target = result.targets[i];
+    const std::string prefix = "targets[" + std::to_string(i) + "].";
+    output << prefix << "id = " << std::quoted(target.id) << '\n'
+           << prefix << "kind = " << HorizonKindName(target.kind) << '\n'
+           << prefix << "converged = " << target.converged << '\n';
+    if (target.converged) {
+      output << prefix << "successfulAttempt = "
+             << target.successfulAttempt << '\n';
+    } else {
+      output << prefix << "successfulAttempt = unavailable\n";
+    }
+    output << prefix << "attempts.count = " << target.attempts.size() << '\n';
+    for (std::size_t j = 0; j < target.attempts.size(); ++j) {
+      const AHSearchAttemptResult& attempt = target.attempts[j];
+      const std::string attemptPrefix =
+        prefix + "attempts[" + std::to_string(j) + "].";
+      output << attemptPrefix << "referencePoint = "
+             << attempt.referencePoint.x << ' ' << attempt.referencePoint.y
+             << ' ' << attempt.referencePoint.z << '\n'
+             << attemptPrefix << "initialRadius = " << attempt.initialRadius
+             << '\n'
+             << attemptPrefix << "succeeded = " << attempt.succeeded << '\n'
+             << attemptPrefix << "solver.converged = "
+             << attempt.result.solver.converged << '\n'
+             << attemptPrefix << "surfaceAvailable = "
+             << attempt.result.surfaceAvailable << '\n'
+             << attemptPrefix << "solver.iterations = "
+             << attempt.result.solver.iterations << '\n'
+             << attemptPrefix << "solver.message = "
+             << std::quoted(attempt.result.solver.message) << '\n'
+             << attemptPrefix << "residualHistory.count = "
+             << attempt.result.solver.residualHistory.size() << '\n';
+      for (std::size_t k = 0;
+           k < attempt.result.solver.residualHistory.size(); ++k) {
+        output << attemptPrefix << "residualHistory[" << k << "] = "
+               << attempt.result.solver.residualHistory[k] << '\n';
+      }
+    }
+    if (target.horizon.has_value()) {
+      const AHFinderResult& horizon = *target.horizon;
+      output << prefix << "horizon.referencePoint = "
+             << horizon.referencePoint.x << ' ' << horizon.referencePoint.y
+             << ' ' << horizon.referencePoint.z << '\n'
+             << prefix << "horizon.minRadius = " << horizon.minRadius << '\n'
+             << prefix << "horizon.meanRadius = " << horizon.meanRadius << '\n'
+             << prefix << "horizon.maxRadius = " << horizon.maxRadius << '\n'
+             << prefix << "horizon.spectralResidualInfinityNorm = "
+             << horizon.spectralResidualInfinityNorm << '\n'
+             << prefix << "horizon.maxAbsExpansion = "
+             << horizon.maxAbsExpansion << '\n';
+    }
+  }
+  if (!output) {
+    throw std::runtime_error(
+      "Failed while writing AH multi-horizon summary: " + filename);
+  }
+}
+
 AHVisualizationSurface BuildAHVisualizationSurface(
   const AHFinderResult& result, const AHVisualizationOptions& options) {
   ValidateVisualizationOptions(options);
@@ -336,6 +429,41 @@ AHSearchResult WriteAHToFile(const GridData& gridData,
       outputOptions.surfaceFilename,
       outputOptions.visualization
     );
+  }
+  return result;
+}
+
+AHMultiHorizonResult WriteAHToFile(
+  const GridData& gridData,
+  const AHMultiHorizonOptions& searchOptions,
+  const AHMultiHorizonOutputOptions& outputOptions
+) {
+  ValidateAHMultiHorizonOptions(searchOptions);
+  if (outputOptions.summaryFilename.empty()) {
+    throw std::invalid_argument(
+      "AHMultiHorizonOutputOptions: summaryFilename must not be empty");
+  }
+  if (outputOptions.horizonFilenamePrefix.empty()) {
+    throw std::invalid_argument(
+      "AHMultiHorizonOutputOptions: horizonFilenamePrefix must not be empty");
+  }
+  ValidateVisualizationOptions(outputOptions.visualization);
+
+  AHMultiHorizonResult result = FindApparentHorizons(gridData, searchOptions);
+  WriteAHMultiHorizonSummary(result, outputOptions.summaryFilename);
+  for (std::size_t i = 0; i < result.targets.size(); ++i) {
+    const AHHorizonTargetResult& target = result.targets[i];
+    if (!target.converged || !target.horizon.has_value() ||
+        !target.horizon->surfaceAvailable) {
+      continue;
+    }
+    WriteAHSummary(
+      *target.horizon,
+      TargetFilename(outputOptions, i, target.id, ".txt"));
+    WriteAHSurfaceToVTP(
+      *target.horizon,
+      TargetFilename(outputOptions, i, target.id, ".vtp"),
+      outputOptions.visualization);
   }
   return result;
 }
