@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <limits>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace exahype2::ccz4::ahf {
@@ -56,6 +57,60 @@ void ValidateAHSearchOptions(const AHSearchOptions& options);
 AHSearchResult FindApparentHorizon(
   const GridData& gridData,
   const AHSearchOptions& options
+);
+
+/** Physical role assigned by the user to one independently searched surface. */
+enum class AHHorizonKind {
+  Individual,
+  Common
+};
+
+/**
+ * One physical horizon and its ordered alternative guesses. The target ID is
+ * the stable association between attempts and the intended black hole/common
+ * horizon; no geometric post-hoc matching is performed.
+ */
+struct AHHorizonTarget {
+  std::string id;
+  AHHorizonKind kind = AHHorizonKind::Individual;
+  std::vector<AHSearchAttempt> attempts;
+};
+
+/** Shared numerical configuration for any number of physical targets. */
+struct AHMultiHorizonOptions {
+  std::vector<AHHorizonTarget> targets;
+  int lMax = 2;
+  CartesianToSurfaceOptions interpolation{};
+  SpectralNewtonOptions solver{};
+};
+
+/** Ordered attempts and selected result for one physical target. */
+struct AHHorizonTargetResult {
+  std::string id;
+  AHHorizonKind kind = AHHorizonKind::Individual;
+  bool converged = false;
+  std::size_t successfulAttempt = AHSearchResult::NoSuccessfulAttempt;
+  std::optional<AHFinderResult> horizon;
+  std::vector<AHSearchAttemptResult> attempts;
+};
+
+/** Aggregate result without collapsing partial success into one boolean. */
+struct AHMultiHorizonResult {
+  bool anyHorizonFound = false;
+  bool allTargetsFound = false;
+  std::vector<AHHorizonTargetResult> targets;
+};
+
+void ValidateAHMultiHorizonOptions(const AHMultiHorizonOptions& options);
+
+/**
+ * Search every physical target in vector order. The first successful attempt
+ * stops retries for that target only; remaining targets are still searched.
+ * One spectral basis and one persistent Cartesian interpolator are shared.
+ */
+AHMultiHorizonResult FindApparentHorizons(
+  const GridData& gridData,
+  const AHMultiHorizonOptions& options
 );
 
 }  // namespace exahype2::ccz4::ahf

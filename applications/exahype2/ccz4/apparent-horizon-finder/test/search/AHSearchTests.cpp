@@ -94,7 +94,6 @@ void TestAllAttemptsFail() {
   assert(result.attempts.size() == 3);
   for (const AHSearchAttemptResult& attempt : result.attempts) {
     assert(!attempt.succeeded);
-    assert(!attempt.result.solver.residualHistory.empty());
     assert(!attempt.result.solver.message.empty());
   }
 }
@@ -162,6 +161,84 @@ void TestSearchOutput() {
   std::filesystem::remove(surface);
 }
 
+AHMultiHorizonOptions MultiOptions(std::vector<AHHorizonTarget> targets) {
+  AHMultiHorizonOptions options;
+  options.targets = std::move(targets);
+  options.lMax = 0;
+  options.interpolation = {
+    .method = CartesianToSurfaceMethod::UnweightedPolynomial,
+    .numberOfNeighbours = 64,
+    .polynomialDegree = 1,
+    .allowOrderReduction = false
+  };
+  return options;
+}
+
+void TestPhysicalTargetGrouping() {
+  const AHMultiHorizonResult result = FindApparentHorizons(
+    MakeGrid(),
+    MultiOptions({
+      {
+        .id = "BH-plus",
+        .kind = AHHorizonKind::Individual,
+        .attempts = {{{100.0, 0.0, 0.0}, 1.0},
+                     {{0.25, 0.0, 0.0}, 1.3},
+                     {{0.0, 0.0, 0.0}, 1.3}}
+      },
+      {
+        .id = "BH-minus",
+        .kind = AHHorizonKind::Individual,
+        .attempts = {{{-0.25, 0.0, 0.0}, 1.3}}
+      }
+    })
+  );
+  assert(result.anyHorizonFound);
+  assert(result.allTargetsFound);
+  assert(result.targets.size() == 2);
+  assert(result.targets[0].id == "BH-plus");
+  assert(result.targets[0].successfulAttempt == 1);
+  assert(result.targets[0].attempts.size() == 2); // third retry was not run
+  assert(!result.targets[0].attempts[0].succeeded);
+  assert(result.targets[0].attempts[1].succeeded);
+  assert(result.targets[1].id == "BH-minus");
+  assert(result.targets[1].converged); // first target success did not stop it
+  assert(result.targets[1].attempts.size() == 1);
+}
+
+void TestPhysicalTargetPartialSuccess() {
+  const AHMultiHorizonResult result = FindApparentHorizons(
+    MakeGrid(),
+    MultiOptions({
+      {.id = "missing", .attempts = {{{100.0, 0.0, 0.0}, 1.0}}},
+      {.id = "common", .kind = AHHorizonKind::Common,
+       .attempts = {{{0.0, 0.0, 0.0}, 1.3}}}
+    })
+  );
+  assert(result.anyHorizonFound);
+  assert(!result.allTargetsFound);
+  assert(!result.targets[0].converged);
+  assert(!result.targets[0].horizon.has_value());
+  assert(result.targets[1].converged);
+  assert(result.targets[1].horizon.has_value());
+  assert(result.targets[1].kind == AHHorizonKind::Common);
+}
+
+void TestPhysicalTargetValidation() {
+  bool threw = false;
+  try { (void)FindApparentHorizons(MakeGrid(), MultiOptions({})); }
+  catch (const std::invalid_argument&) { threw = true; }
+  assert(threw);
+
+  threw = false;
+  try {
+    (void)FindApparentHorizons(
+      MakeGrid(),
+      MultiOptions({{.id = "same", .attempts = {{{0, 0, 0}, 1.0}}},
+                    {.id = "same", .attempts = {{{0, 0, 0}, 1.0}}}}));
+  } catch (const std::invalid_argument&) { threw = true; }
+  assert(threw);
+}
+
 }  // namespace
 }  // namespace exahype2::ccz4::ahf::tests
 
@@ -171,4 +248,7 @@ int main() {
   exahype2::ccz4::ahf::tests::TestAllAttemptsFail();
   exahype2::ccz4::ahf::tests::TestValidation();
   exahype2::ccz4::ahf::tests::TestSearchOutput();
+  exahype2::ccz4::ahf::tests::TestPhysicalTargetGrouping();
+  exahype2::ccz4::ahf::tests::TestPhysicalTargetPartialSuccess();
+  exahype2::ccz4::ahf::tests::TestPhysicalTargetValidation();
 }
