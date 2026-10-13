@@ -122,6 +122,26 @@ void TestFailureResultPropagation() {
   assert(actual.message == "max_iter reached");
 }
 
+void TestExplicitSpectralInitialSurface() {
+  const GridData grid = MakeConstantHorizonGrid();
+  const CartesianPointInterpolator interpolator(grid, InterpolationOptions());
+  const SpectralBasis basis = BuildSpectralBasis(0);
+  const std::vector<double> initial =
+    MakeSphericalInitialCoefficients(basis, 1.3);
+  const SpectralNewtonResult expected = SolveDirectly(
+    basis, interpolator, 1.3, {});
+  const SpectralNewtonResult actual = SolvePDEforAH(
+    basis, interpolator, {0.0, 0.0, 0.0}, initial);
+  AssertSameResult(actual, expected);
+
+  bool rejected = false;
+  try {
+    (void)SolvePDEforAH(
+      basis, interpolator, {0.0, 0.0, 0.0}, std::vector<double>{});
+  } catch (const std::invalid_argument&) { rejected = true; }
+  assert(rejected);
+}
+
 void TestInvalidLineSearchTrialDoesNotEscape() {
   // The analytic root is r=10, beyond this grid. Starting at r=1 causes a
   // later full Newton trial to leave the interpolation domain. The residual
@@ -153,6 +173,7 @@ int main() {
   using namespace exahype2::ccz4::ahf::tests::solve_pde_for_ah;
   TestSuccessfulOrchestrationAndResultPropagation();
   TestFailureResultPropagation();
+  TestExplicitSpectralInitialSurface();
   TestInvalidLineSearchTrialDoesNotEscape();
   std::cout << "All SolvePDEforAH tests completed.\n";
 }

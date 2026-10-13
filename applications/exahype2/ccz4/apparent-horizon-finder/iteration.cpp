@@ -25,12 +25,35 @@ SpectralNewtonResult SolvePDEforAH(
   const std::vector<double> initialCoefficients =
     MakeSphericalInitialCoefficients(basis, initialRadius);
 
-  // Reject an initial sphere the data cannot cover before spending a Newton
+  return SolvePDEforAH(
+    basis, interpolator, referencePoint, initialCoefficients, options);
+}
+
+SpectralNewtonResult SolvePDEforAH(
+  const SpectralBasis& basis,
+  const CartesianPointInterpolator& interpolator,
+  const ReferencePoint& referencePoint,
+  const std::vector<double>& initialCoefficients,
+  const SpectralNewtonOptions& options
+) {
+  if (initialCoefficients.size() != basis.nModes) {
+    throw std::invalid_argument(
+      "SolvePDEforAH: initial coefficient count must equal basis.nModes");
+  }
+  const SynthesizedField field = Synthesize(basis, initialCoefficients);
+  for (std::size_t p = 0; p < basis.nPoints; ++p) {
+    if (!std::isfinite(field.h[p]) || field.h[p] <= 0.0) {
+      throw std::invalid_argument(
+        "SolvePDEforAH: synthesized initial radius at point " +
+        std::to_string(p) + " must be finite and strictly positive");
+    }
+  }
+
+  // Reject an initial surface the data cannot cover before spending a Newton
   // solve on it. Without this the interpolator fails at every collocation
   // point, the residual is non-finite from the first evaluation, and the
   // failure surfaces far from its cause.
   {
-    const SynthesizedField field = Synthesize(basis, initialCoefficients);
     for (std::size_t p = 0; p < basis.nPoints; ++p) {
       const AHGuessPoint   guessPoint{field.h[p], basis.rho[p], basis.sigma[p]};
       const GridCoordinate target = SurfacePointToCartesian(
@@ -44,13 +67,14 @@ SpectralNewtonResult SolvePDEforAH(
         message
           << "SolvePDEforAH: the initial guess leaves the sampled domain. "
           << "Reference point (" << referencePoint.x << ", " << referencePoint.y
-          << ", " << referencePoint.z << ") with radius " << initialRadius
-          << " puts collocation point " << p << " at (" << target.x << ", "
+          << ", " << referencePoint.z
+          << ") with its initial spectral surface puts collocation point "
+          << p << " at (" << target.x << ", "
           << target.y << ", " << target.z << "), outside the sampled bounds ["
           << low.x << ", " << high.x << "] x [" << low.y << ", " << high.y
           << "] x [" << low.z << ", " << high.z
           << "]. Move the reference point towards the data or reduce the "
-             "initial radius.";
+             "initial surface.";
         // Reported, not thrown: an unreachable initial guess is a statement
         // about the data and the guess, not a bug, and callers that search over
         // candidate reference points must be able to try the next one without

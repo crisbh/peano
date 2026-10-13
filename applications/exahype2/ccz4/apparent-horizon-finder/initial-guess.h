@@ -19,6 +19,15 @@ std::vector<double> MakeSphericalInitialCoefficients(
   double radius
 );
 
+/**
+ * Project positive radii in canonical SpectralBasis collocation order into an
+ * arbitrary star-shaped spectral initial surface.
+ */
+std::vector<double> MakeDistortedInitialCoefficients(
+  const SpectralBasis& basis,
+  const std::vector<double>& radii
+);
+
 }  // namespace exahype2::ccz4::ahf
 
 #endif  // APPARENT_HORIZON_FINDER_INITIAL_GUESS_H_

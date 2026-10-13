@@ -178,8 +178,16 @@ void WriteAHSearchSummary(const AHSearchResult& result,
     const std::string prefix = "attempts[" + std::to_string(i) + "].";
     output << prefix << "referencePoint = " << attempt.referencePoint.x << ' '
            << attempt.referencePoint.y << ' ' << attempt.referencePoint.z << '\n'
-           << prefix << "initialRadius = " << attempt.initialRadius << '\n'
-           << prefix << "succeeded = " << attempt.succeeded << '\n'
+           << prefix << "initialSurface = "
+           << (attempt.initialCoefficients.empty() ? "sphere" : "spectral")
+           << '\n'
+           << prefix << "initialRadius = ";
+    if (attempt.initialCoefficients.empty()) {
+      output << attempt.initialRadius << '\n';
+    } else {
+      output << "unavailable\n";
+    }
+    output << prefix << "succeeded = " << attempt.succeeded << '\n'
            << prefix << "solver.converged = "
            << attempt.result.solver.converged << '\n'
            << prefix << "surfaceAvailable = "
@@ -190,6 +198,12 @@ void WriteAHSearchSummary(const AHSearchResult& result,
            << std::quoted(attempt.result.solver.message) << '\n'
            << prefix << "residualHistory.count = "
            << attempt.result.solver.residualHistory.size() << '\n';
+    output << prefix << "initialCoefficients.count = "
+           << attempt.initialCoefficients.size() << '\n';
+    for (std::size_t j = 0; j < attempt.initialCoefficients.size(); ++j) {
+      output << prefix << "initialCoefficients[" << j << "] = "
+             << attempt.initialCoefficients[j] << '\n';
+    }
     for (std::size_t j = 0;
          j < attempt.result.solver.residualHistory.size(); ++j) {
       output << prefix << "residualHistory[" << j << "] = "
@@ -250,9 +264,16 @@ void WriteAHMultiHorizonSummary(const AHMultiHorizonResult& result,
       output << attemptPrefix << "referencePoint = "
              << attempt.referencePoint.x << ' ' << attempt.referencePoint.y
              << ' ' << attempt.referencePoint.z << '\n'
-             << attemptPrefix << "initialRadius = " << attempt.initialRadius
+             << attemptPrefix << "initialSurface = "
+             << (attempt.initialCoefficients.empty() ? "sphere" : "spectral")
              << '\n'
-             << attemptPrefix << "succeeded = " << attempt.succeeded << '\n'
+             << attemptPrefix << "initialRadius = ";
+      if (attempt.initialCoefficients.empty()) {
+        output << attempt.initialRadius << '\n';
+      } else {
+        output << "unavailable\n";
+      }
+      output << attemptPrefix << "succeeded = " << attempt.succeeded << '\n'
              << attemptPrefix << "solver.converged = "
              << attempt.result.solver.converged << '\n'
              << attemptPrefix << "surfaceAvailable = "
@@ -263,6 +284,12 @@ void WriteAHMultiHorizonSummary(const AHMultiHorizonResult& result,
              << std::quoted(attempt.result.solver.message) << '\n'
              << attemptPrefix << "residualHistory.count = "
              << attempt.result.solver.residualHistory.size() << '\n';
+      output << attemptPrefix << "initialCoefficients.count = "
+             << attempt.initialCoefficients.size() << '\n';
+      for (std::size_t k = 0; k < attempt.initialCoefficients.size(); ++k) {
+        output << attemptPrefix << "initialCoefficients[" << k << "] = "
+               << attempt.initialCoefficients[k] << '\n';
+      }
       for (std::size_t k = 0;
            k < attempt.result.solver.residualHistory.size(); ++k) {
         output << attemptPrefix << "residualHistory[" << k << "] = "

@@ -4,6 +4,7 @@
 #include "harmonics.h"
 #include "iteration.h"
 
+#include <cmath>
 #include <stdexcept>
 #include <unordered_set>
 #include <utility>
@@ -34,15 +35,20 @@ AHSearchResult ExecuteAttempts(
   search.attempts.reserve(attempts.size());
   for (std::size_t index = 0; index < attempts.size(); ++index) {
     const AHSearchAttempt& attempt = attempts[index];
-    const SpectralNewtonResult solver = SolvePDEforAH(
-      basis, interpolator, attempt.referencePoint, attempt.initialRadius,
-      solverOptions);
+    const SpectralNewtonResult solver = attempt.initialCoefficients.empty()
+      ? SolvePDEforAH(
+          basis, interpolator, attempt.referencePoint, attempt.initialRadius,
+          solverOptions)
+      : SolvePDEforAH(
+          basis, interpolator, attempt.referencePoint,
+          attempt.initialCoefficients, solverOptions);
     AHFinderResult result = BuildAHFinderResult(
       basis, interpolator, attempt.referencePoint, solver);
     const bool succeeded = result.solver.converged && result.surfaceAvailable;
     search.attempts.push_back({
       .referencePoint = attempt.referencePoint,
       .initialRadius = attempt.initialRadius,
+      .initialCoefficients = attempt.initialCoefficients,
       .result = result,
       .succeeded = succeeded
     });
@@ -58,13 +64,44 @@ AHSearchResult ExecuteAttempts(
 
 }  // namespace
 
+AHSearchAttempt MakePreviousSurfaceAttempt(const AHFinderResult& previous) {
+  if (!previous.surfaceAvailable || previous.solver.coefficients.empty()) {
+    throw std::invalid_argument(
+      "MakePreviousSurfaceAttempt: previous surface is unavailable");
+  }
+  return {
+    .referencePoint = previous.referencePoint,
+    .initialRadius = previous.meanRadius,
+    .initialCoefficients = previous.solver.coefficients
+  };
+}
+
 void ValidateAHSearchOptions(const AHSearchOptions& options) {
   if (options.attempts.empty()) {
     throw std::invalid_argument(
       "ValidateAHSearchOptions: at least one search attempt is required");
   }
+  const SpectralBasis basis = BuildSpectralBasis(options.lMax);
   for (const AHSearchAttempt& attempt : options.attempts) {
-    ValidateAHFinderOptions(SingleAttemptOptions(options, attempt));
+    if (attempt.initialCoefficients.empty()) {
+      ValidateAHFinderOptions(SingleAttemptOptions(options, attempt));
+      continue;
+    }
+    AHSearchAttempt validationAttempt = attempt;
+    validationAttempt.initialRadius = 1.0;
+    ValidateAHFinderOptions(SingleAttemptOptions(options, validationAttempt));
+    if (attempt.initialCoefficients.size() != basis.nModes) {
+      throw std::invalid_argument(
+        "ValidateAHSearchOptions: initial coefficient count does not match lMax");
+    }
+    const SynthesizedField field = Synthesize(basis, attempt.initialCoefficients);
+    for (std::size_t p = 0; p < field.h.size(); ++p) {
+      if (!std::isfinite(field.h[p]) || field.h[p] <= 0.0) {
+        throw std::invalid_argument(
+          "ValidateAHSearchOptions: explicit initial surface has an invalid "
+          "radius at point " + std::to_string(p));
+      }
+    }
   }
 }
 

@@ -239,6 +239,54 @@ void TestPhysicalTargetValidation() {
   assert(threw);
 }
 
+void TestSpectralAndPreviousSurfaceAttempts() {
+  const SpectralBasis basis = BuildSpectralBasis(0);
+  const std::vector<double> coefficients =
+    MakeSphericalInitialCoefficients(basis, 1.3);
+  AHSearchOptions options = SearchOptions({{
+    .referencePoint = {0.0, 0.0, 0.0},
+    .initialRadius = 0.0,
+    .initialCoefficients = coefficients
+  }});
+  const AHSearchResult first = FindApparentHorizon(MakeGrid(), options);
+  assert(first.converged);
+  assert(first.attempts.size() == 1);
+  assert(first.attempts[0].initialCoefficients == coefficients);
+
+  const AHSearchAttempt continuation =
+    MakePreviousSurfaceAttempt(*first.horizon);
+  assert(continuation.referencePoint.x == first.horizon->referencePoint.x);
+  assert(continuation.initialCoefficients == first.horizon->solver.coefficients);
+  const AHSearchResult second = FindApparentHorizon(
+    MakeGrid(), SearchOptions({continuation}));
+  assert(second.converged);
+
+  options.attempts[0].initialCoefficients.push_back(0.0);
+  bool rejected = false;
+  try { (void)FindApparentHorizon(MakeGrid(), options); }
+  catch (const std::invalid_argument&) { rejected = true; }
+  assert(rejected);
+
+  AHSearchOptions distortedOptions = SearchOptions({});
+  distortedOptions.lMax = 2;
+  const SpectralBasis distortedBasis = BuildSpectralBasis(2);
+  std::vector<double> radii(distortedBasis.nPoints);
+  for (std::size_t p = 0; p < radii.size(); ++p) {
+    radii[p] = 1.3 + 0.05 * EvalMode(
+      2, 0, distortedBasis.rho[p], distortedBasis.sigma[p]).Y;
+  }
+  distortedOptions.attempts = {{
+    .referencePoint = {0.0, 0.0, 0.0},
+    .initialCoefficients =
+      MakeDistortedInitialCoefficients(distortedBasis, radii)
+  }};
+  const AHSearchResult distorted =
+    FindApparentHorizon(MakeGrid(), distortedOptions);
+  assert(distorted.converged);
+  assert(distorted.horizon->solver.coefficients.size() ==
+         distortedBasis.nModes);
+}
+
 void TestPhysicalTargetOutput() {
   const GridData grid = MakeGrid();
   const auto directory = std::filesystem::temp_directory_path();
@@ -314,5 +362,6 @@ int main() {
   exahype2::ccz4::ahf::tests::TestPhysicalTargetGrouping();
   exahype2::ccz4::ahf::tests::TestPhysicalTargetPartialSuccess();
   exahype2::ccz4::ahf::tests::TestPhysicalTargetValidation();
+  exahype2::ccz4::ahf::tests::TestSpectralAndPreviousSurfaceAttempts();
   exahype2::ccz4::ahf::tests::TestPhysicalTargetOutput();
 }

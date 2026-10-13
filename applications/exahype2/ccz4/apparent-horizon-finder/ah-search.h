@@ -13,11 +13,19 @@
 
 namespace exahype2::ccz4::ahf {
 
-/** One explicit, ordered spherical initial-guess/reference-point pair. */
+/** One explicit, ordered initial-surface/reference-point pair. */
 struct AHSearchAttempt {
   ReferencePoint referencePoint{0.0, 0.0, 0.0};
   double initialRadius = 1.0;
+  /**
+   * Optional explicit star-shaped spectral surface. When non-empty this takes
+   * precedence over initialRadius and must match the configured lMax.
+   */
+  std::vector<double> initialCoefficients;
 };
+
+/** Continue from a prior reconstructable result using its centre and surface. */
+AHSearchAttempt MakePreviousSurfaceAttempt(const AHFinderResult& previous);
 
 /** Shared numerical configuration and an arbitrary ordered attempt list. */
 struct AHSearchOptions {
@@ -31,6 +39,7 @@ struct AHSearchOptions {
 struct AHSearchAttemptResult {
   ReferencePoint referencePoint{0.0, 0.0, 0.0};
   double initialRadius = 1.0;
+  std::vector<double> initialCoefficients;
   AHFinderResult result;
   /** True only when Newton converged and final reconstruction succeeded. */
   bool succeeded = false;

@@ -132,6 +132,15 @@ if(ENABLE_CCZ4_AHF_TESTS)
   target_link_libraries(ahf-search-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-search-tests COMMAND ahf-search-tests)
 
+  add_executable(ahf-multi-horizon-dataset-tests
+    test/integration/MultiHorizonDatasetTests.cpp)
+  target_link_libraries(ahf-multi-horizon-dataset-tests
+    PRIVATE ApparentHorizonFinderPostprocess)
+  add_test(NAME ahf-multi-horizon-dataset-tests
+    COMMAND ahf-multi-horizon-dataset-tests)
+  set_tests_properties(ahf-multi-horizon-dataset-tests
+    PROPERTIES LABELS "integration;dataset")
+
   add_executable(ahf-interpolation-tests test/interpolation/InterpolationTests.cpp)
   target_link_libraries(ahf-interpolation-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-interpolation-tests COMMAND ahf-interpolation-tests)

@@ -28,6 +28,15 @@ SpectralNewtonResult SolvePDEforAH(
   const SpectralNewtonOptions& options = {}
 );
 
+/** Solve from an explicit star-shaped spectral surface (e.g. a prior result). */
+SpectralNewtonResult SolvePDEforAH(
+  const SpectralBasis& basis,
+  const CartesianPointInterpolator& interpolator,
+  const ReferencePoint& referencePoint,
+  const std::vector<double>& initialCoefficients,
+  const SpectralNewtonOptions& options = {}
+);
+
 /**
  * Determine whether a common-horizon search should be triggered for a binary-black-hole setup.
  */
