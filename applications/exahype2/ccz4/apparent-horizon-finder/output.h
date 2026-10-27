@@ -4,6 +4,7 @@
 #include "ah-finder-result.h"
 #include "ah-finder-options.h"
 #include "ah-search.h"
+#include "merger-orchestration.h"
 
 #include <array>
 #include <cstddef>
@@ -119,6 +120,13 @@ AHSearchResult WriteAHToFile(
 AHMultiHorizonResult WriteAHToFile(
   const GridData& gridData,
   const AHMultiHorizonOptions& searchOptions,
+  const AHMultiHorizonOutputOptions& outputOptions = {}
+);
+
+/** Merger-aware binary workflow with the same per-target output convention. */
+AHBinaryMergerResult WriteAHToFile(
+  const GridData& gridData,
+  const AHBinaryMergerOptions& mergerOptions,
   const AHMultiHorizonOutputOptions& outputOptions = {}
 );
 

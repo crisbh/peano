@@ -48,6 +48,26 @@ AHMultiHorizonOptions BaseOptions(double supportRadius) {
   return options;
 }
 
+AHBinaryMergerOptions MergerOptions(double separation, double supportRadius) {
+  const AHMultiHorizonOptions base = BaseOptions(supportRadius);
+  AHBinaryMergerOptions options;
+  options.components = {{
+    {{.id = "individual-plus",
+      .attempts = {{{separation / 2.0, 0.0, 0.0}, 0.2},
+                   {{separation / 2.0, 0.0, 0.0}, 0.12},
+                   {{separation / 2.0, 0.0, 0.0}, 0.3}}}, 0.5},
+    {{.id = "individual-minus",
+      .attempts = {{{-separation / 2.0, 0.0, 0.0}, 0.2},
+                   {{-separation / 2.0, 0.0, 0.0}, 0.12},
+                   {{-separation / 2.0, 0.0, 0.0}, 0.3}}}, 0.5}
+  }};
+  options.commonRadiusFactors = {1.0, 1.5, 2.0};
+  options.lMax = base.lMax;
+  options.interpolation = base.interpolation;
+  options.solver = base.solver;
+  return options;
+}
+
 AHMultiHorizonOutputOptions DatasetOutput(const std::string& name) {
   return {
     .summaryFilename = name + "-summary.txt",
@@ -91,32 +111,18 @@ void TestSeparatedIndividualHorizons() {
     DatasetPath("two-punctures-D-2-t0.vtu"), grid, SourceMapping());
   assert(grid.numberOfPoints() == 373248);
 
-  AHMultiHorizonOptions options = BaseOptions(0.2);
-  options.targets = {
-    {
-      .id = "individual-plus",
-      .kind = AHHorizonKind::Individual,
-      .attempts = {{{1.0, 0.0, 0.0}, 0.2},
-                   {{1.0, 0.0, 0.0}, 0.12},
-                   {{1.0, 0.0, 0.0}, 0.3}}
-    },
-    {
-      .id = "individual-minus",
-      .kind = AHHorizonKind::Individual,
-      .attempts = {{{-1.0, 0.0, 0.0}, 0.2},
-                   {{-1.0, 0.0, 0.0}, 0.12},
-                   {{-1.0, 0.0, 0.0}, 0.3}}
-    }
-  };
+  const AHBinaryMergerOptions options = MergerOptions(2.0, 0.2);
 
   const AHMultiHorizonOutputOptions output =
     DatasetOutput("ahf-two-punctures-separated");
-  const AHMultiHorizonResult result = WriteAHToFile(grid, options, output);
+  const AHBinaryMergerResult merger = WriteAHToFile(grid, options, output);
+  const AHMultiHorizonResult& result = merger.horizons;
+  assert(!merger.plan.commonSearchEnabled);
   assert(result.allTargetsFound);
   assert(result.targets.size() == 2);
   for (std::size_t i = 0; i < result.targets.size(); ++i) {
     const AHHorizonTargetResult& target = result.targets[i];
-    assert(target.id == options.targets[i].id);
+    assert(target.id == options.components[i].target.id);
     assert(target.converged);
     assert(target.successfulAttempt == 0);
     assert(target.attempts.size() == 1);
@@ -140,20 +146,17 @@ void TestCloseCommonHorizon() {
     DatasetPath("two-punctures-D-0.25-t0.vtu"), grid, SourceMapping());
   assert(grid.numberOfPoints() == 373248);
 
-  AHMultiHorizonOptions options = BaseOptions(0.15);
-  options.targets = {{
-    .id = "common",
-    .kind = AHHorizonKind::Common,
-    .attempts = {{{0.0, 0.0, 0.0}, 0.6},
-                 {{0.0, 0.0, 0.0}, 0.9},
-                 {{0.0, 0.0, 0.0}, 1.125}}
-  }};
+  const AHBinaryMergerOptions options = MergerOptions(0.25, 0.15);
 
   const AHMultiHorizonOutputOptions output =
     DatasetOutput("ahf-two-punctures-close");
-  const AHMultiHorizonResult result = WriteAHToFile(grid, options, output);
+  const AHBinaryMergerResult merger = WriteAHToFile(grid, options, output);
+  const AHMultiHorizonResult& result = merger.horizons;
+  assert(merger.plan.commonSearchEnabled);
+  assert(std::abs(merger.plan.separation - 0.25) < 1.0e-14);
+  assert(std::abs(merger.plan.commonReferencePoint.x) < 1.0e-14);
   assert(result.allTargetsFound);
-  assert(result.targets.size() == 1);
+  assert(result.targets.size() == 3);
   const AHHorizonTargetResult& common = result.targets.front();
   assert(common.kind == AHHorizonKind::Common);
   assert(common.successfulAttempt == 0);

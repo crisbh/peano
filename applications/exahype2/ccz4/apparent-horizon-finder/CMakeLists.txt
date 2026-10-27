@@ -13,6 +13,7 @@ set(AHF_CORE_SOURCES
   ah-finder-options.cpp
   ah-finder-result.cpp
   ah-search.cpp
+  merger-orchestration.cpp
   output.cpp
   interpolation.cpp
   surface-geometry.cpp
@@ -32,6 +33,7 @@ set(AHF_CORE_HEADERS
   ah-finder-options.h
   ah-finder-result.h
   ah-search.h
+  merger-orchestration.h
   ahf-data.h
   apparent-horizon-finder.h
   peano-input.h
@@ -131,6 +133,13 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_executable(ahf-search-tests test/search/AHSearchTests.cpp)
   target_link_libraries(ahf-search-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-search-tests COMMAND ahf-search-tests)
+
+  add_executable(ahf-merger-orchestration-tests
+    test/merger-orchestration/MergerOrchestrationTests.cpp)
+  target_link_libraries(ahf-merger-orchestration-tests
+    PRIVATE ApparentHorizonFinderCore)
+  add_test(NAME ahf-merger-orchestration-tests
+    COMMAND ahf-merger-orchestration-tests)
 
   add_executable(ahf-multi-horizon-dataset-tests
     test/integration/MultiHorizonDatasetTests.cpp)

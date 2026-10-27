@@ -250,6 +250,11 @@ void WriteAHMultiHorizonSummary(const AHMultiHorizonResult& result,
     output << prefix << "id = " << std::quoted(target.id) << '\n'
            << prefix << "kind = " << HorizonKindName(target.kind) << '\n'
            << prefix << "converged = " << target.converged << '\n';
+    if (target.massScale.has_value()) {
+      output << prefix << "massScale = " << *target.massScale << '\n';
+    } else {
+      output << prefix << "massScale = shared\n";
+    }
     if (target.converged) {
       output << prefix << "successfulAttempt = "
              << target.successfulAttempt << '\n';
@@ -491,6 +496,43 @@ AHMultiHorizonResult WriteAHToFile(
       *target.horizon,
       TargetFilename(outputOptions, i, target.id, ".vtp"),
       outputOptions.visualization);
+  }
+  return result;
+}
+
+AHBinaryMergerResult WriteAHToFile(
+  const GridData& gridData,
+  const AHBinaryMergerOptions& mergerOptions,
+  const AHMultiHorizonOutputOptions& outputOptions
+) {
+  AHBinaryMergerResult result;
+  result.plan = BuildBinaryMergerPlan(mergerOptions);
+  result.horizons = WriteAHToFile(gridData, result.plan.search, outputOptions);
+
+  std::ofstream output(outputOptions.summaryFilename, std::ios::app);
+  if (!output) {
+    throw std::runtime_error(
+      "Unable to append merger diagnostics to AH output file: " +
+      outputOptions.summaryFilename);
+  }
+  output << std::setprecision(std::numeric_limits<double>::max_digits10)
+         << std::boolalpha
+         << "merger.commonSearchEnabled = "
+         << result.plan.commonSearchEnabled << '\n'
+         << "merger.separation = " << result.plan.separation << '\n'
+         << "merger.facingRadius[0] = " << result.plan.facingRadii[0] << '\n'
+         << "merger.facingRadius[1] = " << result.plan.facingRadii[1] << '\n'
+         << "merger.commonReferencePoint = "
+         << result.plan.commonReferencePoint.x << ' '
+         << result.plan.commonReferencePoint.y << ' '
+         << result.plan.commonReferencePoint.z << '\n'
+         << "merger.commonMass = " << result.plan.commonMass << '\n'
+         << "merger.enclosingInitialRadius = "
+         << result.plan.enclosingInitialRadius << '\n';
+  if (!output) {
+    throw std::runtime_error(
+      "Failed while appending AH merger diagnostics: " +
+      outputOptions.summaryFilename);
   }
   return result;
 }

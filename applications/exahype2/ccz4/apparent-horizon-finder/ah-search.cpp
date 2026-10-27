@@ -136,6 +136,11 @@ void ValidateAHMultiHorizonOptions(const AHMultiHorizonOptions& options) {
       .interpolation = options.interpolation,
       .solver = options.solver
     });
+    if (target.massScale.has_value() &&
+        (!std::isfinite(*target.massScale) || *target.massScale <= 0.0)) {
+      throw std::invalid_argument(
+        "ValidateAHMultiHorizonOptions: target massScale must be finite and positive");
+    }
   }
 }
 
@@ -151,8 +156,12 @@ AHMultiHorizonResult FindApparentHorizons(
   result.allTargetsFound = true;
   result.targets.reserve(options.targets.size());
   for (const AHHorizonTarget& target : options.targets) {
+    SpectralNewtonOptions targetSolver = options.solver;
+    if (target.massScale.has_value()) {
+      targetSolver.massScale = *target.massScale;
+    }
     AHSearchResult search = ExecuteAttempts(
-      basis, interpolator, target.attempts, options.solver);
+      basis, interpolator, target.attempts, targetSolver);
     result.anyHorizonFound = result.anyHorizonFound || search.converged;
     result.allTargetsFound = result.allTargetsFound && search.converged;
     result.targets.push_back({
@@ -161,7 +170,8 @@ AHMultiHorizonResult FindApparentHorizons(
       .converged = search.converged,
       .successfulAttempt = search.successfulAttempt,
       .horizon = std::move(search.horizon),
-      .attempts = std::move(search.attempts)
+      .attempts = std::move(search.attempts),
+      .massScale = target.massScale
     });
   }
   return result;

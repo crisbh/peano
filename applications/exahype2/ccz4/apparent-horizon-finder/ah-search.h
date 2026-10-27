@@ -83,6 +83,8 @@ struct AHHorizonTarget {
   std::string id;
   AHHorizonKind kind = AHHorizonKind::Individual;
   std::vector<AHSearchAttempt> attempts;
+  /** Optional per-target override of SpectralNewtonOptions::massScale. */
+  std::optional<double> massScale;
 };
 
 /** Shared numerical configuration for any number of physical targets. */
@@ -101,6 +103,7 @@ struct AHHorizonTargetResult {
   std::size_t successfulAttempt = AHSearchResult::NoSuccessfulAttempt;
   std::optional<AHFinderResult> horizon;
   std::vector<AHSearchAttemptResult> attempts;
+  std::optional<double> massScale;
 };
 
 /** Aggregate result without collapsing partial success into one boolean. */

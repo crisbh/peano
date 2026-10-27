@@ -8,6 +8,7 @@
 #include "ah-finder-options.h"
 #include "ah-finder-result.h"
 #include "ah-search.h"
+#include "merger-orchestration.h"
 #include "peano-input.h"
 #include "output.h"
 #include "interpolation.h"
