@@ -152,6 +152,20 @@ AHMultiHorizonResult FindApparentHorizons(
   const SpectralBasis basis = BuildSpectralBasis(options.lMax);
   const CartesianPointInterpolator interpolator(gridData, options.interpolation);
 
+  return FindApparentHorizons(basis, interpolator, options);
+}
+
+AHMultiHorizonResult FindApparentHorizons(
+  const SpectralBasis& basis,
+  const CartesianPointInterpolator& interpolator,
+  const AHMultiHorizonOptions& options
+) {
+  ValidateAHMultiHorizonOptions(options);
+  if (basis.lmax != options.lMax) {
+    throw std::invalid_argument(
+      "FindApparentHorizons: supplied basis does not match options.lMax");
+  }
+
   AHMultiHorizonResult result;
   result.allTargetsFound = true;
   result.targets.reserve(options.targets.size());

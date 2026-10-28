@@ -125,6 +125,17 @@ AHMultiHorizonResult FindApparentHorizons(
   const AHMultiHorizonOptions& options
 );
 
+/**
+ * Execute a validated multi-target search using caller-owned numerical
+ * objects. This is the orchestration primitive used when several search
+ * phases must share one persistent Cartesian spatial index.
+ */
+AHMultiHorizonResult FindApparentHorizons(
+  const SpectralBasis& basis,
+  const CartesianPointInterpolator& interpolator,
+  const AHMultiHorizonOptions& options
+);
+
 }  // namespace exahype2::ccz4::ahf
 
 #endif  // APPARENT_HORIZON_FINDER_AH_SEARCH_H_

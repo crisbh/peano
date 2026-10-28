@@ -18,6 +18,24 @@ const char* HorizonKindName(AHHorizonKind kind) {
   return kind == AHHorizonKind::Common ? "common" : "individual";
 }
 
+const char* CommonValidationStatusName(AHCommonHorizonValidationStatus status) {
+  switch (status) {
+    case AHCommonHorizonValidationStatus::FullyValidated: return "fully-validated";
+    case AHCommonHorizonValidationStatus::ProvisionallyValidated: return "provisionally-validated";
+    case AHCommonHorizonValidationStatus::Rejected: return "rejected";
+  }
+  return "unknown";
+}
+
+const char* EnclosureStatusName(AHEnclosureValidationStatus status) {
+  switch (status) {
+    case AHEnclosureValidationStatus::Passed: return "passed";
+    case AHEnclosureValidationStatus::Failed: return "failed";
+    case AHEnclosureValidationStatus::Unavailable: return "unavailable";
+  }
+  return "unknown";
+}
+
 std::string SafeFilenameId(const std::string& id) {
   std::string safe = id;
   for (char& character : safe) {
@@ -35,6 +53,22 @@ std::string TargetFilename(const AHMultiHorizonOutputOptions& options,
                            const char* extension) {
   return options.horizonFilenamePrefix + "-" + std::to_string(targetIndex) +
          "-" + SafeFilenameId(targetId) + extension;
+}
+
+std::string CatalogueFilename(const AHMultiHorizonOutputOptions& options,
+                              const char* kind, std::size_t index,
+                              const std::string& id, const char* extension) {
+  return options.horizonFilenamePrefix + "-" + kind + "-" +
+    std::to_string(index) + "-" + SafeFilenameId(id) + extension;
+}
+
+AHSearchResult AsSearchResult(const AHHorizonTargetResult& target) {
+  return {
+    .converged = target.converged,
+    .successfulAttempt = target.successfulAttempt,
+    .horizon = target.horizon,
+    .attempts = target.attempts
+  };
 }
 
 void ValidateVisualizationOptions(const AHVisualizationOptions& options) {
@@ -533,6 +567,117 @@ AHBinaryMergerResult WriteAHToFile(
     throw std::runtime_error(
       "Failed while appending AH merger diagnostics: " +
       outputOptions.summaryFilename);
+  }
+  return result;
+}
+
+void WriteAHHorizonCatalogueSummary(const AHHorizonCatalogue& result,
+                                    const std::string& filename) {
+  std::ofstream output = OpenOutput(filename);
+  output << std::setprecision(std::numeric_limits<double>::max_digits10)
+         << std::boolalpha
+         << "AHHorizonCatalogueVersion = 1\n"
+         << "individuals.count = " << result.individuals.targets.size() << '\n'
+         << "common.count = " << result.commonHorizons.size() << '\n';
+  for (std::size_t i = 0; i < result.individuals.targets.size(); ++i) {
+    const auto& target = result.individuals.targets[i];
+    const std::string p = "individuals[" + std::to_string(i) + "].";
+    output << p << "id = " << std::quoted(target.id) << '\n'
+           << p << "converged = " << target.converged << '\n'
+           << p << "attempts.count = " << target.attempts.size() << '\n';
+    for (std::size_t j = 0; j < target.attempts.size(); ++j) {
+      const auto& attempt = target.attempts[j];
+      output << p << "attempts[" << j << "].message = "
+             << std::quoted(attempt.result.solver.message) << '\n'
+             << p << "attempts[" << j << "].iterations = "
+             << attempt.result.solver.iterations << '\n'
+             << p << "attempts[" << j << "].residualHistory.count = "
+             << attempt.result.solver.residualHistory.size() << '\n';
+      for (std::size_t k = 0; k < attempt.result.solver.residualHistory.size(); ++k) {
+        output << p << "attempts[" << j << "].residualHistory[" << k << "] = "
+               << attempt.result.solver.residualHistory[k] << '\n';
+      }
+    }
+  }
+  for (std::size_t i = 0; i < result.commonHorizons.size(); ++i) {
+    const auto& entry = result.commonHorizons[i];
+    const std::string p = "common[" + std::to_string(i) + "].";
+    output << p << "id = " << std::quoted(entry.id) << '\n'
+           << p << "members.count = " << entry.memberIds.size() << '\n';
+    for (std::size_t j = 0; j < entry.memberIds.size(); ++j) {
+      output << p << "members[" << j << "] = "
+             << std::quoted(entry.memberIds[j]) << '\n';
+    }
+    output << p << "reason.triggeredPair = " << entry.reason.triggeredPair << '\n'
+           << p << "reason.connectedComponent = " << entry.reason.connectedComponent << '\n'
+           << p << "reason.explicitlyRequested = " << entry.reason.explicitlyRequested << '\n'
+           << p << "reason.unconditionalAllBlackHoles = "
+           << entry.reason.unconditionalAllBlackHoles << '\n'
+           << p << "solver.converged = " << entry.search.converged << '\n'
+           << p << "validation.status = "
+           << CommonValidationStatusName(entry.validation.status) << '\n'
+           << p << "validation.numericallyValid = "
+           << entry.validation.numericallyValid << '\n'
+           << p << "validation.valid = " << entry.validation.valid << '\n'
+           << p << "validation.memberHorizonEnclosure = "
+           << EnclosureStatusName(entry.validation.memberHorizonEnclosure) << '\n'
+           << p << "validation.physicalPositionEnclosure = "
+           << EnclosureStatusName(entry.validation.physicalPositionEnclosure) << '\n'
+           << p << "validation.reasons.count = " << entry.validation.reasons.size() << '\n';
+    for (std::size_t j = 0; j < entry.validation.reasons.size(); ++j) {
+      output << p << "validation.reasons[" << j << "] = "
+             << std::quoted(entry.validation.reasons[j]) << '\n';
+    }
+    for (std::size_t j = 0; j < entry.search.attempts.size(); ++j) {
+      const auto& attempt = entry.search.attempts[j];
+      output << p << "attempts[" << j << "].message = "
+             << std::quoted(attempt.result.solver.message) << '\n'
+             << p << "attempts[" << j << "].iterations = "
+             << attempt.result.solver.iterations << '\n'
+             << p << "attempts[" << j << "].residualHistory.count = "
+             << attempt.result.solver.residualHistory.size() << '\n';
+      for (std::size_t k = 0; k < attempt.result.solver.residualHistory.size(); ++k) {
+        output << p << "attempts[" << j << "].residualHistory[" << k << "] = "
+               << attempt.result.solver.residualHistory[k] << '\n';
+      }
+    }
+  }
+  if (!output) throw std::runtime_error("Failed while writing AH catalogue: " + filename);
+}
+
+AHHorizonCatalogue WriteAHToFile(
+  const GridData& gridData,
+  const AHCommonHorizonSearchOptions& searchOptions,
+  const AHMultiHorizonOutputOptions& outputOptions
+) {
+  if (outputOptions.summaryFilename.empty() ||
+      outputOptions.horizonFilenamePrefix.empty()) {
+    throw std::invalid_argument("Catalogue output filenames must not be empty");
+  }
+  ValidateVisualizationOptions(outputOptions.visualization);
+  AHHorizonCatalogue result = FindApparentHorizons(gridData, searchOptions);
+  WriteAHHorizonCatalogueSummary(result, outputOptions.summaryFilename);
+  for (std::size_t i = 0; i < result.individuals.targets.size(); ++i) {
+    const auto& target = result.individuals.targets[i];
+    WriteAHSearchSummary(AsSearchResult(target), CatalogueFilename(
+      outputOptions, "individual", i, target.id, ".txt"));
+    if (!target.converged || !target.horizon.has_value() ||
+        !target.horizon->surfaceAvailable) continue;
+    WriteAHSurfaceToVTP(*target.horizon, CatalogueFilename(
+      outputOptions, "individual", i, target.id, ".vtp"),
+      outputOptions.visualization);
+  }
+  for (std::size_t i = 0; i < result.commonHorizons.size(); ++i) {
+    const auto& entry = result.commonHorizons[i];
+    WriteAHSearchSummary(AsSearchResult(entry.search), CatalogueFilename(
+      outputOptions, "common", i, entry.id, ".txt"));
+    if (entry.validation.status ==
+          AHCommonHorizonValidationStatus::FullyValidated &&
+        entry.search.horizon.has_value()) {
+      WriteAHSurfaceToVTP(*entry.search.horizon, CatalogueFilename(
+        outputOptions, "common", i, entry.id, ".vtp"),
+        outputOptions.visualization);
+    }
   }
   return result;
 }

@@ -9,6 +9,8 @@
 #include "ah-finder-result.h"
 #include "ah-search.h"
 #include "merger-orchestration.h"
+#include "common-horizon-candidates.h"
+#include "common-horizon-search.h"
 #include "peano-input.h"
 #include "output.h"
 #include "interpolation.h"

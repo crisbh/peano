@@ -5,6 +5,7 @@
 #include "ah-finder-options.h"
 #include "ah-search.h"
 #include "merger-orchestration.h"
+#include "common-horizon-search.h"
 
 #include <array>
 #include <cstddef>
@@ -127,6 +128,19 @@ AHMultiHorizonResult WriteAHToFile(
 AHBinaryMergerResult WriteAHToFile(
   const GridData& gridData,
   const AHBinaryMergerOptions& mergerOptions,
+  const AHMultiHorizonOutputOptions& outputOptions = {}
+);
+
+/** Catalogue summary retaining individual failures and common validation. */
+void WriteAHHorizonCatalogueSummary(
+  const AHHorizonCatalogue& result,
+  const std::string& filename
+);
+
+/** N-black-hole individual/common workflow and validated output façade. */
+AHHorizonCatalogue WriteAHToFile(
+  const GridData& gridData,
+  const AHCommonHorizonSearchOptions& searchOptions,
   const AHMultiHorizonOutputOptions& outputOptions = {}
 );
 
