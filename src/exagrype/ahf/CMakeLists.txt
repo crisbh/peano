@@ -76,47 +76,55 @@ target_link_libraries(ApparentHorizonFinderCore
 
 target_compile_definitions(ApparentHorizonFinderCore PUBLIC IncludeApparentHorizonFinder)
 
-find_package(VTK REQUIRED COMPONENTS
+# Only the snapshot reader (file-input), the postprocessing executable and the
+# tests that read .vtu files need VTK; the core and its other tests do not.
+find_package(VTK QUIET COMPONENTS
   CommonCore
   CommonDataModel
   FiltersCore
   IOXML
 )
 
-add_library(ApparentHorizonFinderPostprocess STATIC
-  file-input.cpp
-  file-input.h
-)
+if(VTK_FOUND)
+  add_library(ApparentHorizonFinderPostprocess STATIC
+    file-input.cpp
+    file-input.h
+  )
 
-target_include_directories(ApparentHorizonFinderPostprocess
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-)
+  target_include_directories(ApparentHorizonFinderPostprocess
+    PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  )
 
-target_link_libraries(ApparentHorizonFinderPostprocess
-  PUBLIC
-    ApparentHorizonFinderCore
-  PRIVATE
-    VTK::CommonCore
-    VTK::CommonDataModel
-    VTK::FiltersCore
-    VTK::IOXML
-)
+  target_link_libraries(ApparentHorizonFinderPostprocess
+    PUBLIC
+      ApparentHorizonFinderCore
+    PRIVATE
+      VTK::CommonCore
+      VTK::CommonDataModel
+      VTK::FiltersCore
+      VTK::IOXML
+  )
 
-vtk_module_autoinit(
-  TARGETS ApparentHorizonFinderPostprocess
-  MODULES VTK::CommonCore VTK::CommonDataModel VTK::FiltersCore VTK::IOXML
-)
+  vtk_module_autoinit(
+    TARGETS ApparentHorizonFinderPostprocess
+    MODULES VTK::CommonCore VTK::CommonDataModel VTK::FiltersCore VTK::IOXML
+  )
 
-add_executable(ahf-postprocess ahf-postprocess.cpp)
-target_link_libraries(ahf-postprocess PRIVATE ApparentHorizonFinderPostprocess)
+  add_executable(ahf-postprocess ahf-postprocess.cpp)
+  target_link_libraries(ahf-postprocess PRIVATE ApparentHorizonFinderPostprocess)
+else()
+  message(STATUS "VTK not found: skipping ahf-postprocess and the AHF tests that read .vtu files")
+endif()
 
 if(ENABLE_CCZ4_AHF_TESTS)
   enable_testing()
 
-  add_executable(ahf-io-tests test/io/IoTests.cpp)
-  target_link_libraries(ahf-io-tests PRIVATE ApparentHorizonFinderPostprocess)
-  add_test(NAME ahf-io-tests COMMAND ahf-io-tests)
+  if(VTK_FOUND)
+    add_executable(ahf-io-tests test/io/IoTests.cpp)
+    target_link_libraries(ahf-io-tests PRIVATE ApparentHorizonFinderPostprocess)
+    add_test(NAME ahf-io-tests COMMAND ahf-io-tests)
+  endif()
 
   add_executable(ahf-data-tests test/data/AhfDataTests.cpp)
   target_link_libraries(ahf-data-tests PRIVATE ApparentHorizonFinderCore)
@@ -159,14 +167,16 @@ if(ENABLE_CCZ4_AHF_TESTS)
   add_test(NAME ahf-common-horizon-search-tests
     COMMAND ahf-common-horizon-search-tests)
 
-  add_executable(ahf-multi-horizon-dataset-tests
-    test/integration/MultiHorizonDatasetTests.cpp)
-  target_link_libraries(ahf-multi-horizon-dataset-tests
-    PRIVATE ApparentHorizonFinderPostprocess)
-  add_test(NAME ahf-multi-horizon-dataset-tests
-    COMMAND ahf-multi-horizon-dataset-tests)
-  set_tests_properties(ahf-multi-horizon-dataset-tests
-    PROPERTIES LABELS "integration;dataset")
+  if(VTK_FOUND)
+    add_executable(ahf-multi-horizon-dataset-tests
+      test/integration/MultiHorizonDatasetTests.cpp)
+    target_link_libraries(ahf-multi-horizon-dataset-tests
+      PRIVATE ApparentHorizonFinderPostprocess)
+    add_test(NAME ahf-multi-horizon-dataset-tests
+      COMMAND ahf-multi-horizon-dataset-tests)
+    set_tests_properties(ahf-multi-horizon-dataset-tests
+      PROPERTIES LABELS "integration;dataset")
+  endif()
 
   add_executable(ahf-interpolation-tests test/interpolation/InterpolationTests.cpp)
   target_link_libraries(ahf-interpolation-tests PRIVATE ApparentHorizonFinderCore)
@@ -176,14 +186,16 @@ if(ENABLE_CCZ4_AHF_TESTS)
   target_link_libraries(ahf-surface-geometry-tests PRIVATE ApparentHorizonFinderCore)
   add_test(NAME ahf-surface-geometry-tests COMMAND ahf-surface-geometry-tests)
 
-  add_executable(ahf-sample-t0-user-workflow-tests
-    test/integration/SampleT0UserWorkflowTests.cpp)
-  target_link_libraries(ahf-sample-t0-user-workflow-tests
-    PRIVATE ApparentHorizonFinderPostprocess)
-  add_test(NAME ahf-sample-t0-user-workflow-tests
-    COMMAND ahf-sample-t0-user-workflow-tests)
-  set_tests_properties(ahf-sample-t0-user-workflow-tests
-    PROPERTIES LABELS integration)
+  if(VTK_FOUND)
+    add_executable(ahf-sample-t0-user-workflow-tests
+      test/integration/SampleT0UserWorkflowTests.cpp)
+    target_link_libraries(ahf-sample-t0-user-workflow-tests
+      PRIVATE ApparentHorizonFinderPostprocess)
+    add_test(NAME ahf-sample-t0-user-workflow-tests
+      COMMAND ahf-sample-t0-user-workflow-tests)
+    set_tests_properties(ahf-sample-t0-user-workflow-tests
+      PROPERTIES LABELS integration)
+  endif()
 
   add_executable(ahf-assemble-matrix-tests test/assemble-matrix/AssembleMatrixTests.cpp)
   target_link_libraries(ahf-assemble-matrix-tests PRIVATE ApparentHorizonFinderCore)
@@ -231,7 +243,9 @@ if(ENABLE_CCZ4_AHF_TESTS)
 
   # Figure-data generator for figures/plot-triangle-horizon.py. Deliberately not
   # an add_test: it asserts nothing, it writes a JSON history of the Newton
-  # solver.
-  add_executable(ahf-dump-triangle-horizon figures/dump-triangle-horizon.cpp)
-  target_link_libraries(ahf-dump-triangle-horizon PRIVATE ApparentHorizonFinderCore)
+  # solver. figures/ is not in the repository, so only build it where it exists.
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/figures/dump-triangle-horizon.cpp)
+    add_executable(ahf-dump-triangle-horizon figures/dump-triangle-horizon.cpp)
+    target_link_libraries(ahf-dump-triangle-horizon PRIVATE ApparentHorizonFinderCore)
+  endif()
 endif()
