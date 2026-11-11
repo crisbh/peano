@@ -57,7 +57,6 @@ if __name__ == "__main__":
     parser.add_argument("-exn",  "--exe-name",        dest="exe_name",    type=str, default="",  help="name of output executable file" )
     parser.add_argument("-outdir", "--output-directory", dest="path",     type=str, default="./",  help="specify the output directory, include the patch file and tracer file" )
     parser.add_argument("-so",   "--second-order",    dest="SO_flag",     default=False, action="store_true",  help="enable double communication per timestep, used in the soccz4 formulation.")
-    parser.add_argument("--with-ahf", dest="with_ahf", default=False, action="store_true", help="compile the apparent horizon finder into the generated CCZ4 executable")
     parser.add_argument("-interp",   "--interpolation", dest="interpolation",     choices=["constant","order-2","linear-constant-extrap","linear-linear-extrap","linear-con-extrap-lin-normal-interp","linear-lin-extrap-lin-normal-interp", "matrix", "second_order"], default="linear-lin-extrap-lin-normal-interp",  help="interpolation scheme for AMR" )
     parser.add_argument("-restrict", "--restriction",   dest="restriction",       choices=["average", "inject", "matrix", "second_order" ], default="average",  help="restriction scheme for AMR" )
     parser.add_argument("-restart", "--restart-timestamp",   dest="restart_timestamp",    default=0.0, type=float,  help="specify the timestamp you would like to restart. The first checkpointed timestamp will be used to restart the simulation. Default is 0.0 (switch off)" )
@@ -589,14 +588,6 @@ if __name__ == "__main__":
       raise Exception( "Scenario " + args.scenario + " is now unknown")
 
     peano4_project.output.makefile.add_CXX_flag( "-DCCZ4EINSTEIN" )
-    if args.with_ahf:
-      peano4_project.output.makefile.add_CXX_flag( "-DIncludeApparentHorizonFinder" )
-      peano4_project.output.makefile.add_header_search_path( "apparent-horizon-finder" )
-      peano4_project.output.makefile.add_cpp_file( "apparent-horizon-finder/peano-input.cpp" )
-      peano4_project.output.makefile.add_cpp_file( "apparent-horizon-finder/output.cpp" )
-      peano4_project.output.makefile.add_cpp_file( "apparent-horizon-finder/interpolation.cpp" )
-      peano4_project.output.makefile.add_cpp_file( "apparent-horizon-finder/assemble-matrix.cpp" )
-      peano4_project.output.makefile.add_cpp_file( "apparent-horizon-finder/iteration.cpp" )
 
     peano4_project.generate( throw_away_data_after_generation=False )
     peano4_project.build( make_clean_first = True )
