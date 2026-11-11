@@ -1,9 +1,6 @@
 # Apparent Horizon Finder Build Notes
 
-This folder contains the CCZ4 apparent-horizon-finder (AHF) code. It can be compiled in two different ways:
-
-- as part of a generated CCZ4/Peano simulation executable for on-the-fly use
-- as a local CMake postprocessing executable for VTK/VTU files
+This folder contains ExaGRyPE's apparent-horizon-finder (AHF) code. At the moment it is a standalone CMake postprocessing tool for VTK/VTU snapshots, not part of the ExaGRyPE library; on-the-fly use inside a simulation is planned (see below).
 
 The source split is:
 
@@ -37,10 +34,12 @@ and is still the default weighted-polynomial behaviour.
 Build from inside this folder:
 
 ```bash
-cd applications/exahype2/ccz4/apparent-horizon-finder
+cd src/exagrype/ahf
 cmake -S . -B build
 cmake --build build --target ahf-postprocess
 ```
+
+It can also be built as part of Peano's CMake build, by adding `-DENABLE_EXAGRYPE=ON -DENABLE_CCZ4_AHF_POSTPROCESSOR=ON` (and `-DENABLE_CCZ4_AHF_TESTS=ON` for the tests) to the usual ExaGRyPE configuration.
 
 Run the postprocessor:
 
@@ -48,7 +47,7 @@ Run the postprocessor:
 ./build/ahf-postprocess --input snapshot.vtu --output horizon.vtp
 ```
 
-The local postprocessing build uses `file-input.cpp`, so CMake has to find the C++ VTK package. If VTK is not found, pass either `VTK_DIR` or `CMAKE_PREFIX_PATH`:
+The local postprocessing build uses `file-input.cpp`, so CMake has to find the C++ VTK package. Without VTK, the core and the tests that do not read `.vtu` files are still built, but `ahf-postprocess` and the `ahf-io`, `ahf-multi-horizon-dataset` and `ahf-sample-t0-user-workflow` tests are skipped. If VTK is installed but not found, pass either `VTK_DIR` or `CMAKE_PREFIX_PATH`:
 
 ```bash
 cmake -S . -B build -DVTK_DIR=/path/to/vtk/lib/cmake/vtk-*
@@ -77,7 +76,7 @@ Requires Python with the `vtk` module.
 Tests are optional and disabled by default. Enable them with:
 
 ```bash
-cd applications/exahype2/ccz4/apparent-horizon-finder
+cd src/exagrype/ahf
 cmake -S . -B build -DENABLE_CCZ4_AHF_TESTS=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
@@ -106,50 +105,9 @@ They can also be run directly:
 ./build/ahf-iteration-tests
 ```
 
-## On-The-Fly CCZ4 Build
+## On-The-Fly Use (planned)
 
-For on-the-fly use, compile AHF through the normal `ccz4.py` generator:
-
-```bash
-cd applications/exahype2/ccz4
-
-export PYTHONPATH=../../../python
-export PYTHONPATH=$PYTHONPATH:../../../applications/exahype2/ccz4
-
-# The final --with-ahf flag enables the apparent-horizon finder.
-python3 ccz4.py \
-  -impl fd4-rk1-dsl \
-  -s gauge \
-  -maxh 0.05 \
-  -minh 0.05 \
-  -ps 9 \
-  -plt 0.1 \
-  -et 0.5 \
-  -exn gauge_ahf \
-  --domain_r 0.5 \
-  --ReSwi 0 \
-  -cfl 0.1 \
-  --KOSigma 8.0 \
-  --with-ahf  # enable AHF on-the-fly
-```
-
-This generates and builds:
-
-```bash
-./peano4_gauge_ahf
-```
-
-The `--with-ahf` build adds only the on-the-fly/shared sources:
-
-```text
-apparent-horizon-finder/peano-input.cpp
-apparent-horizon-finder/output.cpp
-apparent-horizon-finder/interpolation.cpp
-apparent-horizon-finder/assemble-matrix.cpp
-apparent-horizon-finder/iteration.cpp
-```
-
-It deliberately does not compile `file-input.cpp`, so the on-the-fly simulation build does not require VTK.
+On-the-fly use inside an ExaGRyPE simulation is not available yet. The `--with-ahf` flag of the old `applications/exahype2/ccz4/ccz4.py` script has been removed, as ExaGRyPE runs are now built through `exagrype.api` (see `benchmarks/exagrype`). The plan is to compile the core into the ExaGRyPE library and add an `exagrype.api` action set that switches the finder on with `-DIncludeApparentHorizonFinder`. The Peano-side input, `peano-input.*` (`ReadGridFromPeano`), is still a stub. The on-the-fly build will not compile `file-input.cpp`, so it will not require VTK.
 
 ## Cleaning
 
